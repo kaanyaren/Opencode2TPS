@@ -2,11 +2,11 @@ import { createSignal, createEffect, onCleanup, untrack } from "solid-js";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import { formatLine } from "./tps.ts";
 import {
-  messageRate,
-  readLastAssistant,
   readLastUser,
   readMessages,
   readStatus,
+  turnMessages,
+  turnRate,
   type UserLike,
 } from "./measure.ts";
 import { SubagentList } from "./sidebar.tsx";
@@ -43,7 +43,6 @@ function TpsView(props: { sessionID?: string }) {
   let turnStartedAt = 0;
   let streaming = false;
   let seenUser: UserLike | null = null;
-  let frozenRate: number | null = null;
 
   const show = (value: string | null) => {
     lastLabel = value;
@@ -54,7 +53,6 @@ function TpsView(props: { sessionID?: string }) {
     turnStartedAt = 0;
     streaming = false;
     seenUser = null;
-    frozenRate = null;
     show(null);
   };
 
@@ -76,7 +74,6 @@ function TpsView(props: { sessionID?: string }) {
     } else if (lastUser && seenUser && lastUser.id !== seenUser.id && status !== "running") {
       if (lastUser.created - seenUser.created > MIN_SPLIT_GAP_MS) {
         streaming = false;
-        frozenRate = null;
       }
       seenUser = lastUser;
     }
@@ -87,18 +84,12 @@ function TpsView(props: { sessionID?: string }) {
       turnStartedAt = now;
     }
 
-    // Rate is measured per assistant message: reported (output + reasoning)
-    // over the message lifetime — the part that is actually generation.
-    // Turn "running" time also covers prefill, queueing and approvals, so
-    // dividing by it under-reports badly (measured ~76 vs ~133 tps).
-    const last = readLastAssistant(messages);
-    if (last) {
-      const rate = messageRate(last, now);
-      if (rate !== null) frozenRate = rate;
-    }
-
+    // Rate covers the whole turn: generated tokens over generation + tool-wait
+    // seconds. Tool waits land when the call returns, so an MCP/shell call
+    // holds the number and steps it down the moment the call finishes.
+    const rate = turnRate(turnMessages(messages), now);
     const wallSec = (now - turnStartedAt) / 1000;
-    show(formatLine(frozenRate, wallSec));
+    show(formatLine(rate, wallSec));
   };
 
   createEffect(() => {
