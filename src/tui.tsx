@@ -9,7 +9,7 @@ import {
   turnRate,
   type UserLike,
 } from "./measure.ts";
-import { SubagentList } from "./sidebar.tsx";
+import { SubagentList, sessionLabel } from "./sidebar.tsx";
 
 const TICK_MS = 100;
 // A replacement user id only counts as a new turn when its prompt was
@@ -39,6 +39,8 @@ function TpsView(props: { sessionID?: string }) {
     ],
   }));
   const [label, setLabel] = createSignal<string | null>(null);
+  // Non-null while the open session is a subagent — the footer shows which.
+  const [place, setPlace] = createSignal<string | null>(null);
 
   let turnStartedAt = 0;
   let streaming = false;
@@ -49,11 +51,22 @@ function TpsView(props: { sessionID?: string }) {
     setLabel(value);
   };
 
+  // Defensive: an unsynced session must never throw.
+  const readPlace = (sessionID: string): string | null => {
+    try {
+      const info = ctx.data.session.get(sessionID);
+      return info?.parentID ? sessionLabel(info, sessionID) : null;
+    } catch {
+      return null;
+    }
+  };
+
   const reset = () => {
     turnStartedAt = 0;
     streaming = false;
     seenUser = null;
     show(null);
+    setPlace(null);
   };
 
   const tick = () => {
@@ -61,6 +74,8 @@ function TpsView(props: { sessionID?: string }) {
     if (!sessionID) return;
     const now = Date.now();
     const status = readStatus(ctx, sessionID);
+    // Read before the running guard: the badge must show while idle too.
+    setPlace(readPlace(sessionID));
 
     // A new turn starts when a genuinely new user prompt appears. Two guards
     // against mid-turn message churn (sync replacements share ~the same
@@ -118,7 +133,7 @@ function TpsView(props: { sessionID?: string }) {
   });
   tick();
 
-  return <text>{` ${label() ?? IDLE_LABEL}`}</text>;
+  return <text>{` ${place() ? `↳ ${place()}  ` : ""}${label() ?? IDLE_LABEL}`}</text>;
 }
 
 export default Plugin.define({

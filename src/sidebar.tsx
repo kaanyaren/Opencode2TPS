@@ -23,7 +23,7 @@ function marker(running: boolean, outcome: string | undefined): string {
   return "✓";
 }
 
-function name(info: { agent?: string; title?: string }, id: string): string {
+export function sessionLabel(info: { agent?: string; title?: string }, id: string): string {
   const value = info.agent ?? info.title ?? id;
   return value.length > NAME_MAX ? `${value.slice(0, NAME_MAX - 1)}…` : value;
 }
@@ -51,7 +51,7 @@ export function SubagentList(props: { sessionID: string }) {
       next.push({
         id,
         created,
-        text: `${marker(running, info.outcome)} ${name(info, id)}  ${rate} tps  ${stats.genSec.toFixed(1)} s`,
+        text: `${marker(running, info.outcome)} ${sessionLabel(info, id)}  ${rate} tps  ${stats.genSec.toFixed(1)} s`,
       });
     }
     next.sort((a, b) => a.created - b.created);

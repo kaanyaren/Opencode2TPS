@@ -9,6 +9,7 @@ before the context/cost data. Shows per-response speed plus last wall time:
 
 - TPS = (output + reasoning tokens) / (generation seconds + tool-wait seconds), measured across the turn; ticking every 100ms. Right side is total turn wall time.
 - Tool and MCP waits count: a call holds the number steady while it runs and steps it down the moment it returns (only completed waits are added).
+- Inside a subagent's session the footer is prefixed with `↳ <agent>`, so you can tell where you are.
 - While a message streams, tokens are estimated from streamed text + reasoning characters (~4.2 chars/token) and reconciled to reported usage the moment the message completes.
 - `—` when the provider reports no usage and no text is visible. No persistence.
 - Avg and totals intentionally removed.
