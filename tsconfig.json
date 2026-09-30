@@ -7,7 +7,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "solid-js",
+    "jsxImportSource": "@opentui/solid",
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },

@@ -12,6 +12,25 @@ before the context/cost data. Shows per-response speed plus last wall time:
 - `—` when the provider reports no usage and no text is visible. No persistence.
 - Avg and totals intentionally removed.
 
+## Subagent list (sidebar)
+
+While a session spawns subagents, the sidebar shows one row per descendant
+(below the built-in blocks):
+
+```text
+● explorer        124.5 tps   3.2 s
+● build           98.0 tps    7.4 s
+✓ merge-check     102.1 tps   1.8 s
+```
+
+- `●` running, `✓` succeeded, `✕` failed, `◦` interrupted.
+- Running rows update live; finished rows freeze on the run average —
+  total generated tokens / the subagent's generation seconds (tool waits excluded),
+  so subagents stay comparable.
+- Rows stay until you send your next prompt, then clear for the new turn.
+- Click a row to open that subagent's session.
+- Shows nothing when the session has no subagents.
+
 ## Install
 
 ```sh

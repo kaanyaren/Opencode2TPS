@@ -1,6 +1,6 @@
 {
   "name": "ocode2tpsmeter",
-  "version": "0.1.10",
+  "version": "0.2.0",
   "description": "Live TPS meter for OpenCode2 — right-aligned in prompt footer status",
   "type": "module",
   "main": "./src/index.ts",
@@ -28,7 +28,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "prepack": "npm run build",
-    "test": "node --test src/tps.test.ts",
+    "test": "node --test src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {

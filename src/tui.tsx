@@ -1,77 +1,23 @@
 import { createSignal, createEffect, onCleanup, untrack } from "solid-js";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
-import type { Context } from "@opencode/plugin/tui/context";
-import { calcTps, formatLine } from "./tps.js";
+import { formatLine } from "./tps.ts";
+import {
+  messageRate,
+  readLastAssistant,
+  readLastUser,
+  readMessages,
+  readStatus,
+  type UserLike,
+} from "./measure.ts";
+import { SubagentList } from "./sidebar.tsx";
 
 const TICK_MS = 100;
-// Chars-per-token for the live estimate between usage reports. Measured on
-// real traffic: text ~4.7, reasoning ~4.0.
-const CHARS_PER_TOKEN = 4.2;
 // A replacement user id only counts as a new turn when its prompt was
 // created clearly later — same-submit sync churn shares ~one timestamp.
 const MIN_SPLIT_GAP_MS = 3000;
 const IDLE_LABEL = "— tps | — s";
 
 let lastLabel: string | null = null;
-
-type MsgLike = {
-  id?: unknown;
-  type?: unknown;
-  time?: { created?: unknown; completed?: unknown };
-  tokens?: { output?: unknown; reasoning?: unknown };
-  content?: unknown;
-};
-
-type LastUser = { id: string; created: number };
-
-function readMessages(ctx: Context, sessionID: string): MsgLike[] {
-  try {
-    const messages = ctx.data.session.message.list(sessionID);
-    return Array.isArray(messages) ? (messages as MsgLike[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function readLastAssistant(messages: MsgLike[]): MsgLike | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.type === "assistant") return messages[i];
-  }
-  return null;
-}
-
-function readLastUser(messages: MsgLike[]): LastUser | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m?.type === "user" && typeof m.id === "string") {
-      const created = m.time?.created;
-      return { id: m.id, created: typeof created === "number" ? created : 0 };
-    }
-  }
-  return null;
-}
-
-// Streamed text + reasoning characters of one message. Both are generated
-// tokens; counting only visible text reads ~0 while the model thinks.
-function charsOf(msg: MsgLike): number {
-  if (!Array.isArray(msg.content)) return 0;
-  let sum = 0;
-  for (const part of msg.content) {
-    const p = part as { type?: unknown; text?: unknown };
-    if ((p?.type === "text" || p?.type === "reasoning") && typeof p.text === "string") {
-      sum += p.text.length;
-    }
-  }
-  return sum;
-}
-
-function readStatus(ctx: Context, sessionID: string): "idle" | "running" {
-  try {
-    return ctx.data.session.status(sessionID);
-  } catch {
-    return "idle";
-  }
-}
 
 function TpsView(props: { sessionID?: string }) {
   const ctx = usePlugin();
@@ -96,8 +42,7 @@ function TpsView(props: { sessionID?: string }) {
 
   let turnStartedAt = 0;
   let streaming = false;
-  let seenUser: LastUser | null = null;
-  let currentMsgID: unknown = null;
+  let seenUser: UserLike | null = null;
   let frozenRate: number | null = null;
 
   const show = (value: string | null) => {
@@ -109,7 +54,6 @@ function TpsView(props: { sessionID?: string }) {
     turnStartedAt = 0;
     streaming = false;
     seenUser = null;
-    currentMsgID = null;
     frozenRate = null;
     show(null);
   };
@@ -147,38 +91,14 @@ function TpsView(props: { sessionID?: string }) {
     // over the message lifetime — the part that is actually generation.
     // Turn "running" time also covers prefill, queueing and approvals, so
     // dividing by it under-reports badly (measured ~76 vs ~133 tps).
-    const msg = readLastAssistant(messages);
-    let rate = frozenRate;
-    if (msg) {
-      if (msg.id !== currentMsgID) currentMsgID = msg.id;
-      const created = msg.time?.created;
-      const completed = msg.time?.completed;
-      const out = msg.tokens?.output;
-      const reasoning = msg.tokens?.reasoning;
-      if (
-        typeof created === "number" &&
-        typeof completed === "number" &&
-        typeof out === "number"
-      ) {
-        // Completed step: exact.
-        const span = Math.max(0.2, (completed - created) / 1000);
-        const tokens = out + (typeof reasoning === "number" ? reasoning : 0);
-        frozenRate = calcTps(tokens, span);
-        rate = frozenRate;
-      } else if (typeof created === "number") {
-        // In flight: estimate from streamed characters. Reported usage lands
-        // only when the message completes, so without this the meter dwells
-        // near zero and spikes at the end.
-        const chars = charsOf(msg);
-        if (chars > 0) {
-          const elapsed = Math.max(0.3, (now - created) / 1000);
-          rate = calcTps(chars / CHARS_PER_TOKEN, elapsed);
-        }
-      }
+    const last = readLastAssistant(messages);
+    if (last) {
+      const rate = messageRate(last, now);
+      if (rate !== null) frozenRate = rate;
     }
 
     const wallSec = (now - turnStartedAt) / 1000;
-    show(formatLine(rate, wallSec));
+    show(formatLine(frozenRate, wallSec));
   };
 
   createEffect(() => {
@@ -214,10 +134,18 @@ export default Plugin.define({
   id: "opencode2tps",
   setup(context) {
     // Prepend so the meter sits before the context/cost data in the status row.
-    const off = context.ui.slot({
+    const offFooter = context.ui.slot({
       prepend: "prompt.footer.status",
       render: ({ sessionID }) => <TpsView sessionID={sessionID} />,
     });
-    return () => off();
+    // Append below the built-in sidebar blocks; renders only with the sidebar.
+    const offSidebar = context.ui.slot({
+      append: "sidebar.content",
+      render: ({ sessionID }) => <SubagentList sessionID={sessionID} />,
+    });
+    return () => {
+      offFooter();
+      offSidebar();
+    };
   },
 });
