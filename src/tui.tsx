@@ -127,7 +127,7 @@ function TpsView(props: { sessionID?: string }) {
   });
   tick();
 
-  return <text>{label() ?? IDLE_LABEL}</text>;
+  return <text>{` ${label() ?? IDLE_LABEL}`}</text>;
 }
 
 export default Plugin.define({
