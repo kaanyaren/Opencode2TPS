@@ -1,23 +1,33 @@
 {
   "name": "ocode2tpsmeter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Live TPS meter for OpenCode2 — right-aligned in prompt footer status",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./tui": "./src/tui.tsx"
+    "./tui": "./dist/tui.js"
   },
-  "files": ["src", "index.ts", "tui.ts", "tsconfig.json", "README.md", "LICENSE"],
+  "files": [
+    "src",
+    "dist",
+    "index.ts",
+    "tui.ts",
+    "tsconfig.json",
+    "README.md",
+    "LICENSE"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/kaanyaren/Opencode2TPS.git"
   },
   "opencode": {
-    "tui": "./src/tui.tsx"
+    "tui": "./dist/tui.js"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "npm run build",
     "test": "node --test src/tps.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -31,6 +41,8 @@
   },
   "devDependencies": {
     "@opencode/plugin": "2.0.20",
+    "esbuild": "^0.28.2",
+    "esbuild-plugin-solid": "^0.6.0",
     "solid-js": "^1.9.0",
     "typescript": "^5.6.0"
   }
