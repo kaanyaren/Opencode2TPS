@@ -1,5 +1,5 @@
 {
-  "name": "opencode2tps",
+  "name": "ocode2tpsmeter",
   "version": "0.1.0",
   "description": "Live TPS meter for OpenCode2 — right-aligned in prompt footer status",
   "type": "module",

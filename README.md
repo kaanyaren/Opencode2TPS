@@ -15,13 +15,13 @@ before the context/cost data. Shows per-response speed plus last wall time:
 ## Install
 
 ```sh
-opencode plugin add opencode2tps
+opencode plugin add ocode2tpsmeter
 ```
 
 Or declare it in config:
 
 ```jsonc
-{ "plugins": ["opencode2tps"] }
+{ "plugins": ["ocode2tpsmeter"] }
 ```
 
 ## Dev
