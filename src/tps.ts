@@ -10,5 +10,5 @@ export function formatLine(tps: number | null, elapsedSec: number): string {
   const left = tps === null ? "—" : tps.toFixed(1);
   const right =
     Number.isFinite(elapsedSec) && elapsedSec >= 0 ? elapsedSec.toFixed(1) : "—";
-  return `${left} t/s | ${right} s`;
+  return `${left} tps | ${right} s`;
 }

@@ -3,11 +3,20 @@
   "version": "0.1.0",
   "description": "Live TPS meter for OpenCode2 — right-aligned in prompt footer status",
   "type": "module",
+  "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
     "./tui": "./src/tui.tsx"
   },
-  "files": ["src"],
+  "files": ["src", "index.ts", "tui.ts", "README.md", "LICENSE"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kaanyaren/Opencode2TPS.git"
+  },
+  "opencode": {
+    "tui": "./src/tui.tsx"
+  },
   "scripts": {
     "test": "node --test src/tps.test.ts",
     "typecheck": "tsc --noEmit"

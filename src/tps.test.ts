@@ -11,9 +11,9 @@ test("calcTps returns null on zero elapsed", () => {
 });
 
 test("formatLine matches locked format", () => {
-  assert.equal(formatLine(42.1, 3.2), "42.1 t/s | 3.2 s");
+  assert.equal(formatLine(42.1, 3.2), "42.1 tps | 3.2 s");
 });
 
 test("formatLine shows dashes when usage is missing", () => {
-  assert.equal(formatLine(null, 3.2), "— t/s | 3.2 s");
+  assert.equal(formatLine(null, 3.2), "— tps | 3.2 s");
 });

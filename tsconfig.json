@@ -8,6 +8,7 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "jsxImportSource": "solid-js",
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
   "include": ["src"]
