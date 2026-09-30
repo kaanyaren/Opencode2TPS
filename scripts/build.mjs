@@ -16,7 +16,7 @@ await build({
   platform: "neutral",
   outfile: "dist/tui.js",
   external: ["solid-js", "@opentui/*", "@opencode/*"],
-  plugins: [solidPlugin({ solid: { moduleName: "@opentui/solid" } })],
+  plugins: [solidPlugin({ solid: { moduleName: "@opentui/solid", generate: "universal" } })],
   logLevel: "warning",
 });
 console.log("dist/tui.js built");
