@@ -1,6 +1,6 @@
 {
   "name": "ocode2tpsmeter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Live TPS meter for OpenCode2 — right-aligned in prompt footer status",
   "type": "module",
   "main": "./src/index.ts",
@@ -8,7 +8,7 @@
     ".": "./src/index.ts",
     "./tui": "./src/tui.tsx"
   },
-  "files": ["src", "index.ts", "tui.ts", "README.md", "LICENSE"],
+  "files": ["src", "index.ts", "tui.ts", "tsconfig.json", "README.md", "LICENSE"],
   "license": "MIT",
   "repository": {
     "type": "git",
