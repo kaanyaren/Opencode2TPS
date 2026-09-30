@@ -7,8 +7,8 @@ before the context/cost data. Shows per-response speed plus last wall time:
 42.1 tps | 3.2 s
 ```
 
-- TPS = output tokens / active streaming seconds (tool waits excluded), ticking every 100ms. Right side is total turn wall time.
-- Reported usage lands per completed message; between reports the streaming tail is estimated from text growth (~4 chars/token) and reconciled to reported totals on completion.
+- TPS = (output + reasoning tokens) / that message's generation seconds, measured per assistant message; ticking every 100ms. Right side is total turn wall time.
+- While a message streams, tokens are estimated from streamed text + reasoning characters (~4.2 chars/token) and reconciled to reported usage the moment the message completes.
 - `—` when the provider reports no usage and no text is visible. No persistence.
 - Avg and totals intentionally removed.
 
