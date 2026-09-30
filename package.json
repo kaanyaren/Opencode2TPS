@@ -1,6 +1,6 @@
 {
   "name": "ocode2tpsmeter",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Live TPS meter for OpenCode2 — right-aligned in prompt footer status",
   "type": "module",
   "main": "./src/index.ts",
@@ -31,14 +31,17 @@
     "test": "node --test src/tps.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@opencode/plugin": "2.0.20",
-    "redis": "6.2.1"
-  },
+  "dependencies": {},
   "peerDependencies": {
+    "@opencode/plugin": ">=2.0.20",
     "@opentui/core": ">=0.5.8",
     "@opentui/solid": ">=0.5.8",
     "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@opencode/plugin": "2.0.20",
