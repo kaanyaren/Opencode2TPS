@@ -1,10 +1,11 @@
 // Precompiles the TUI entry so the published package ships plain JS.
-// JSX uses @opentui/solid's runtime (host-provided, like React's jsx-runtime),
-// so the host never has to transform JSX itself (its transpiler defaults to
-// React, and solid-js/web resolves to a server build under Bun).
-// Solid/OpenCode imports stay external: the host provides those peers.
+// JSX compiles to @opentui/solid primitives (the working ecosystem pattern):
+// the host provides @opentui/solid, solid-js and @opencode/plugin/tui, so
+// the bundle must NOT resolve them from its own node_modules — foreign
+// reactive instances render once and never update.
 import { rmSync } from "node:fs";
 import { build } from "esbuild";
+import { solidPlugin } from "esbuild-plugin-solid";
 
 rmSync(new URL("../dist", import.meta.url), { recursive: true, force: true });
 
@@ -14,10 +15,8 @@ await build({
   format: "esm",
   platform: "neutral",
   outfile: "dist/tui.js",
-  jsx: "automatic",
-  jsxImportSource: "@opentui/solid",
-  tsconfig: "tsconfig.build.json",
   external: ["solid-js", "@opentui/*", "@opencode/*"],
+  plugins: [solidPlugin({ solid: { moduleName: "@opentui/solid" } })],
   logLevel: "warning",
 });
 console.log("dist/tui.js built");
