@@ -19,6 +19,7 @@ import {
   speedBar,
   observedMax,
   isValidColor,
+  clampGap,
   DEFAULT_SETTINGS,
   type Settings,
 } from "./options.ts";
@@ -39,7 +40,16 @@ let lastDetail: string | null = null;
 // The menu builds a fresh loop each time it opens; the loop returns "exit" to
 // stop, or the id of the setting to edit next. Defensive furniture lives in
 // the run callback so a dialog error can never crash the TUI.
-type MenuChoice = "position" | "color" | "compact" | "sidebar" | "timer" | "bar" | "reset" | "exit";
+type MenuChoice =
+  | "position"
+  | "color"
+  | "gap"
+  | "compact"
+  | "sidebar"
+  | "timer"
+  | "bar"
+  | "reset"
+  | "exit";
 
 function TpsView(props: {
   sessionID?: string;
@@ -232,7 +242,10 @@ function TpsView(props: {
   // Absolutely positioned so it centres across the whole footer row instead of
   // competing with the built-in status text for flex space. The inner box is
   // content-width so its background only masks the built-in text where the
-  // meter actually sits.
+  // meter actually sits. The padding is the configured gap on BOTH sides
+  // because the meter is absolutely positioned across the full row, so equal
+  // padding makes the visual gap to the left content and the right content
+  // match.
   return (
     <Show when={visible()}>
       <box
@@ -246,8 +259,8 @@ function TpsView(props: {
       >
         <box
           backgroundColor={ctx.theme.background.base}
-          paddingLeft={1}
-          paddingRight={1}
+          paddingLeft={clampGap(settings().gap)}
+          paddingRight={clampGap(settings().gap)}
         >
           <text wrapMode="none">
             {place() ? <span>{`↳ ${place()}  `}</span> : null}
@@ -281,6 +294,7 @@ async function settingsMenu(
       options: [
         { title: "Position", value: "position", description: current.position },
         { title: "Color", value: "color", description: current.color },
+        { title: "Gap", value: "gap", description: String(current.gap) },
         { title: "Compact", value: "compact", description: current.compact ? "on" : "off" },
         { title: "Show sidebar", value: "sidebar", description: current.showSidebar ? "on" : "off" },
         { title: "Show timer", value: "timer", description: current.showTimer ? "on" : "off" },
@@ -329,6 +343,26 @@ async function settingsMenu(
           });
         }
       }
+    } else if (next === "gap") {
+      const value = await ctx.ui.dialog.select<number>({
+        title: "TPS gap",
+        options: [
+          { title: "0", value: 0 },
+          { title: "1", value: 1 },
+          { title: "2", value: 2 },
+          { title: "3", value: 3 },
+          { title: "4", value: 4 },
+          { title: "6", value: 6 },
+          { title: "8", value: 8 },
+        ],
+        current: props.settings().gap,
+      });
+      if (value !== undefined) {
+        await props.update((draft) => {
+          draft.gap = clampGap(value);
+        });
+        ctx.ui.toast.show({ variant: "success", message: `Gap: ${clampGap(value)} columns` });
+      }
     } else if (next === "compact" || next === "sidebar" || next === "timer" || next === "bar") {
       const key =
         next === "compact"
@@ -364,6 +398,7 @@ async function settingsMenu(
       await props.update((draft) => {
         draft.position = DEFAULT_SETTINGS.position;
         draft.color = DEFAULT_SETTINGS.color;
+        draft.gap = DEFAULT_SETTINGS.gap;
         draft.compact = DEFAULT_SETTINGS.compact;
         draft.showSidebar = DEFAULT_SETTINGS.showSidebar;
         draft.showTimer = DEFAULT_SETTINGS.showTimer;

@@ -12,6 +12,7 @@ Live TPS meter for OpenCode2. **Centered** in the prompt footer status row
 - Tool and MCP waits count: a call holds the number steady while it runs and steps it down the moment it returns (only completed waits are added).
 - Width-aware: full `42.1 tps | 3.2 s` at wide terminals, just the number (`42.1`) when narrow, hidden on very narrow rows (<44 cols). The timer segment can be hidden with `showTimer`.
 - Type `/tps` (or run `Opencode2TPS: Settings` from the command palette) to configure position, colour, compact mode, the sidebar, and the timer.
+- The gap between the left content, the meter and the right content is symmetric and adjustable with `gap` (0–8) in `/tps`.
 - Can show a small speed bar (at most 12 columns, drawn in the same colour as the TPS value) that scales against the session's observed max TPS; toggle with `showBar` in `/tps`.
 - Inside a subagent's session the footer is prefixed with `↳ <agent>`, so you can tell where you are.
 - While a message streams, tokens are estimated from streamed text + reasoning characters (~4.2 chars/token) and reconciled to reported usage the moment the message completes.
@@ -48,6 +49,7 @@ to open the settings menu.
 | --- | --- | --- | --- |
 | `position` | center / left / right | center | Where the meter sits in the footer row. |
 | `color` | hex string | `#6ee7b7` | Colour of the TPS value and `tps` label. |
+| `gap` | 0–8 (columns) | 2 | Blank columns kept around the meter, so the spacing to the left content and the right content reads as equal. |
 | `compact` | on / off | off | When on, show just the number, e.g. `42.1`. |
 | `showSidebar` | on / off | on | Show the subagent list in the sidebar. |
 | `showTimer` | on / off | on | Show the ` | 3.2 s` wall-time segment. |

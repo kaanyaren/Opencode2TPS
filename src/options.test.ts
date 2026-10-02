@@ -6,6 +6,7 @@ import {
   BAR_FILLED,
   DEFAULT_SETTINGS,
   MINT,
+  clampGap,
   formatSeconds,
   formatTps,
   isValidColor,
@@ -190,6 +191,26 @@ test("isValidColor rejects named colours and short hex", () => {
   assert.equal(isValidColor("#12"), false);
 });
 
+test("clampGap passes through in-range whole numbers", () => {
+  assert.equal(clampGap(3), 3);
+  assert.equal(clampGap(0), 0);
+  assert.equal(clampGap(8), 8);
+});
+
+test("clampGap clamps out-of-range values to the bounds", () => {
+  assert.equal(clampGap(-5), 0);
+  assert.equal(clampGap(99), 8);
+});
+
+test("clampGap rounds fractional values", () => {
+  assert.equal(clampGap(2.6), 3);
+});
+
+test("clampGap falls back to the default for non-finite values", () => {
+  assert.equal(clampGap(Number.NaN), DEFAULT_SETTINGS.gap);
+  assert.equal(clampGap(Number.POSITIVE_INFINITY), DEFAULT_SETTINGS.gap);
+});
+
 test("mergeSettings defaults for undefined and null", () => {
   assert.deepEqual(mergeSettings(undefined), { settings: DEFAULT_SETTINGS, invalid: [] });
   assert.deepEqual(mergeSettings(null), { settings: DEFAULT_SETTINGS, invalid: [] });
@@ -216,6 +237,29 @@ test("mergeSettings falls back and lists invalid position/color/booleans", () =>
   });
   assert.deepEqual(settings, DEFAULT_SETTINGS);
   assert.deepEqual(invalid, ["position", "color", "compact", "showSidebar", "showTimer"]);
+});
+
+test("mergeSettings defaults gap to 2", () => {
+  assert.equal(DEFAULT_SETTINGS.gap, 2);
+  const { settings, invalid } = mergeSettings({});
+  assert.equal(settings.gap, 2);
+  assert.deepEqual(invalid, []);
+});
+
+test("mergeSettings accepts gap numbers from 0 to 8", () => {
+  for (const gap of [0, 2, 5, 8]) {
+    const { settings, invalid } = mergeSettings({ gap });
+    assert.equal(settings.gap, gap);
+    assert.deepEqual(invalid, []);
+  }
+});
+
+test("mergeSettings falls back and lists an out-of-range, non-number or NaN gap", () => {
+  for (const gap of [9, -1, "2", Number.NaN]) {
+    const { settings, invalid } = mergeSettings({ gap });
+    assert.equal(settings.gap, DEFAULT_SETTINGS.gap);
+    assert.deepEqual(invalid, ["gap"]);
+  }
 });
 
 test("mergeSettings ignores unknown keys", () => {

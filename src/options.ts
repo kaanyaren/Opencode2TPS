@@ -12,6 +12,8 @@ export type Settings = {
   showSidebar: boolean;
   showTimer: boolean;
   showBar: boolean;
+  /** Blank columns kept between the left content, the meter, and the right content. */
+  gap: number;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -21,7 +23,18 @@ export const DEFAULT_SETTINGS: Settings = {
   showSidebar: true,
   showTimer: true,
   showBar: true,
+  gap: 2,
 };
+
+// Padding before the first and after the last item in the footer row, so the
+// left and right gaps read as equal regardless of content length.
+export const GAP_MIN = 0;
+export const GAP_MAX = 8;
+
+export function clampGap(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_SETTINGS.gap;
+  return Math.max(GAP_MIN, Math.min(GAP_MAX, Math.round(value)));
+}
 
 // Fixed-width speed bar: 10 cells, one space each side, so at most 12 columns.
 export const BAR_CELLS = 8;
@@ -140,6 +153,14 @@ export function mergeSettings(raw: unknown): { settings: Settings; invalid: stri
     const color = value.color;
     if (typeof color === "string" && isValidColor(color)) settings.color = color.trim();
     else invalid.push("color");
+  }
+  if ("gap" in value) {
+    const gap = value.gap;
+    if (typeof gap === "number" && Number.isFinite(gap) && gap >= GAP_MIN && gap <= GAP_MAX) {
+      settings.gap = Math.round(gap);
+    } else {
+      invalid.push("gap");
+    }
   }
   for (const key of ["compact", "showSidebar", "showTimer", "showBar"] as const) {
     if (key in value) {
