@@ -1,7 +1,7 @@
 {
   "name": "ocode2tpsmeter",
   "version": "0.2.3",
-  "description": "Live TPS meter for OpenCode2 — right-aligned in prompt footer status",
+  "description": "Live TPS meter for OpenCode2 — centered in the prompt footer status",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {

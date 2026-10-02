@@ -1,7 +1,8 @@
 # Opencode2TPS
 
-Live TPS meter for OpenCode2. Right-aligned in the prompt footer status row,
-before the context/cost data. Shows per-response speed plus last wall time:
+Live TPS meter for OpenCode2. Centered in the prompt footer status row,
+with the value and `tps` label in mint green. Shows per-response speed plus
+last wall time:
 
 ```text
 42.1 tps | 3.2 s

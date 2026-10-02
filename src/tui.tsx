@@ -16,6 +16,9 @@ const TICK_MS = 100;
 // created clearly later — same-submit sync churn shares ~one timestamp.
 const MIN_SPLIT_GAP_MS = 3000;
 const IDLE_LABEL = "— tps | — s";
+const MINT = "#6ee7b7";
+
+type Line = { tps: number | null; elapsed: number };
 
 let lastLabel: string | null = null;
 
@@ -38,7 +41,7 @@ function TpsView(props: { sessionID?: string }) {
       },
     ],
   }));
-  const [label, setLabel] = createSignal<string | null>(null);
+  const [line, setLine] = createSignal<Line | null>(null);
   // Non-null while the open session is a subagent — the footer shows which.
   const [place, setPlace] = createSignal<string | null>(null);
 
@@ -46,9 +49,9 @@ function TpsView(props: { sessionID?: string }) {
   let streaming = false;
   let seenUser: UserLike | null = null;
 
-  const show = (value: string | null) => {
-    lastLabel = value;
-    setLabel(value);
+  const show = (value: Line | null) => {
+    lastLabel = value ? formatLine(value.tps, value.elapsed) : null;
+    setLine(value);
   };
 
   // Defensive: an unsynced session must never throw.
@@ -104,7 +107,7 @@ function TpsView(props: { sessionID?: string }) {
     // holds the number and steps it down the moment the call finishes.
     const rate = turnRate(turnMessages(messages), now);
     const wallSec = (now - turnStartedAt) / 1000;
-    show(formatLine(rate, wallSec));
+    show({ tps: rate, elapsed: wallSec });
   };
 
   createEffect(() => {
@@ -133,15 +136,37 @@ function TpsView(props: { sessionID?: string }) {
   });
   tick();
 
-  return <text>{` ${place() ? `↳ ${place()}  ` : ""}${label() ?? IDLE_LABEL}`}</text>;
+  const current = () => line() ?? { tps: null, elapsed: Number.NaN };
+  const tpsText = () => {
+    const tps = current().tps;
+    return tps === null ? "—" : tps.toFixed(1);
+  };
+  const secText = () => {
+    const elapsed = current().elapsed;
+    return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed.toFixed(1) : "—";
+  };
+
+  // Absolutely positioned so it centres across the whole footer row instead of
+  // competing with the built-in status text for flex space.
+  return (
+    <box position="absolute" left={0} right={0} zIndex={1} justifyContent="center" flexShrink={0}>
+      <text wrapMode="none">
+        {place() ? `↳ ${place()}  ` : ""}
+        <span style={{ fg: MINT }}>{tpsText()}</span>
+        <span style={{ fg: MINT }}> tps</span>
+        {` | ${secText()} s`}
+      </text>
+    </box>
+  );
 }
 
 export default Plugin.define({
   id: "opencode2tps",
   setup(context) {
-    // Prepend so the meter sits before the context/cost data in the status row.
+    // Sibling of the built-in status, absolutely positioned to centre across
+    // the whole footer row.
     const offFooter = context.ui.slot({
-      prepend: "prompt.footer.status",
+      after: "prompt.footer.status",
       render: ({ sessionID }) => <TpsView sessionID={sessionID} />,
     });
     // Append below the built-in sidebar blocks; renders only with the sidebar.
