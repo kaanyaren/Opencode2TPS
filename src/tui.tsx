@@ -241,11 +241,10 @@ function TpsView(props: {
     return value ? meterSegments(value.tps, value.elapsed, tier(), settings().showTimer, bar()) : [];
   };
 
-  // Center draws across the whole footer row (absolutely positioned so it
-  // doesn't compete with the built-in status text for flex space) and masks
-  // what it covers. Left/right instead sit in the row's natural flow, at the
-  // edges the host leaves empty, so the status/progress text is never covered.
-  // gap pads the meter symmetrically either way.
+  // The meter is a full-row absolute overlay (so it can reach either edge),
+  // with justifyContent set per position: left → flex-start, right → flex-end,
+  // center → center. Because the overlay's inner box is content-width, it only
+  // masks the built-in text it actually sits on.
   const pad = () => clampGap(settings().gap);
   const content = () => (
     <text wrapMode="none">
@@ -258,28 +257,19 @@ function TpsView(props: {
 
   return (
     <Show when={visible()}>
-      <Show
-        when={settings().position === "center"}
-        fallback={
-          <box flexShrink={0} paddingLeft={pad()} paddingRight={pad()} backgroundColor={ctx.theme.background.base}>
-            {content()}
-          </box>
-        }
+      <box
+        position="absolute"
+        left={0}
+        right={0}
+        zIndex={1}
+        flexDirection="row"
+        justifyContent={justifyFor(settings().position)}
+        flexShrink={0}
       >
-        <box
-          position="absolute"
-          left={0}
-          right={0}
-          zIndex={1}
-          flexDirection="row"
-          justifyContent={justifyFor(settings().position)}
-          flexShrink={0}
-        >
-          <box backgroundColor={ctx.theme.background.base} paddingLeft={pad()} paddingRight={pad()}>
-            {content()}
-          </box>
+        <box backgroundColor={ctx.theme.background.base} paddingLeft={pad()} paddingRight={pad()}>
+          {content()}
         </box>
-      </Show>
+      </box>
     </Show>
   );
 }
