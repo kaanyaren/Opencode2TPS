@@ -65,50 +65,11 @@ type MenuChoice =
 function MeterText(props: {
   sessionID?: string;
   settings: Accessor<Settings>;
-  update: (mutation: (draft: Settings) => void) => Promise<void>;
   mode: "overlay" | "inline";
 }) {
   const ctx = usePlugin();
   const term = useTerminalDimensions();
   const settings = () => props.settings();
-  ctx.keymap.layer(() => ({
-    mode: "global",
-    commands: [
-      {
-        id: "opencode2tps.status",
-        title: "Opencode2TPS: Show current TPS",
-        group: "Opencode2TPS",
-        palette: true,
-        run: () =>
-          ctx.ui.toast.show({
-            message: lastDetail ?? IDLE_LABEL,
-            variant: "info",
-            duration: 5000,
-          }),
-      },
-      {
-        id: "opencode2tps.settings",
-        title: "Opencode2TPS: Settings",
-        group: "Opencode2TPS",
-        palette: true,
-        slash: { name: "tps" },
-        // async so the dialog awaits resolve; wired through ctx so it needs no
-        // other file. The loop lets the user change several settings in one go.
-        run: async () => {
-          try {
-            await settingsMenu(ctx, props);
-          } catch (error) {
-            ctx.ui.toast.show({
-              variant: "error",
-              title: "Opencode2TPS",
-              message: `settings failed: ${String(error)}`,
-              duration: 5000,
-            });
-          }
-        },
-      },
-    ],
-  }));
   const [line, setLine] = createSignal<Line | null>(null);
   // Non-null while the open session is a subagent — the footer shows which.
   const [place, setPlace] = createSignal<string | null>(null);
@@ -395,17 +356,7 @@ function FooterRow(props: { sessionID?: string; settings: Accessor<Settings> }) 
         </text>
       </box>
       <box flexShrink={0}>
-        <MeterText
-          sessionID={props.sessionID}
-          settings={props.settings}
-          update={
-            // Takeover never edits settings (there is only one store and the
-            // menu is registered by the overlay claim's palette command), so the
-            // dropdown callback is inert here.
-            async () => {}
-          }
-          mode="inline"
-        />
+        <MeterText sessionID={props.sessionID} settings={props.settings} mode="inline" />
       </box>
       <box flexShrink={0}>
         <text wrapMode="none" truncate fg={ctx.theme.text.base}>
@@ -414,6 +365,76 @@ function FooterRow(props: { sessionID?: string; settings: Accessor<Settings> }) 
       </box>
     </box>
   );
+}
+
+// Always-mounted plugin root. It owns two things that must outlive every view:
+// 1. the palette/slash commands (/tps), so `takeover` can always be undone;
+// 2. the takeover `replace` claim, registered only while takeover is selected.
+// The host's slot renderer suppresses the built-in status children whenever a
+// replace claim EXISTS (even if it renders null), so we can never leave a
+// dormant replace claim mounted — hence the dynamic register/dispose here.
+function PluginRoot(props: {
+  settings: Accessor<Settings>;
+  update: (mutation: (draft: Settings) => void) => Promise<void>;
+}) {
+  const ctx = usePlugin();
+  ctx.keymap.layer(() => ({
+    mode: "global",
+    commands: [
+      {
+        id: "opencode2tps.status",
+        title: "Opencode2TPS: Show current TPS",
+        group: "Opencode2TPS",
+        palette: true,
+        run: () =>
+          ctx.ui.toast.show({
+            message: lastDetail ?? IDLE_LABEL,
+            variant: "info",
+            duration: 5000,
+          }),
+      },
+      {
+        id: "opencode2tps.settings",
+        title: "Opencode2TPS: Settings",
+        group: "Opencode2TPS",
+        palette: true,
+        slash: { name: "tps" },
+        // async so the dialog awaits resolve; the loop lets the user change
+        // several settings in one go.
+        run: async () => {
+          try {
+            await settingsMenu(ctx, props);
+          } catch (error) {
+            ctx.ui.toast.show({
+              variant: "error",
+              title: "Opencode2TPS",
+              message: `settings failed: ${String(error)}`,
+              duration: 5000,
+            });
+          }
+        },
+      },
+    ],
+  }));
+
+  let dispose: (() => void) | undefined;
+  createEffect(() => {
+    const takeover = props.settings().position === "takeover";
+    if (takeover && !dispose) {
+      dispose = ctx.ui.slot({
+        replace: "prompt.footer.status",
+        render: ({ sessionID }) => <FooterRow sessionID={sessionID} settings={props.settings} />,
+      });
+    } else if (!takeover && dispose) {
+      dispose();
+      dispose = undefined;
+    }
+  });
+  onCleanup(() => {
+    dispose?.();
+    dispose = undefined;
+  });
+  return null;
 }
 
 // One round of the settings menu. Returns the next choice to edit, or null to
@@ -582,30 +603,22 @@ export default Plugin.define({
       });
     }
 
-    // Two claims, one row. The host's prompt footer row owns the
-    // `prompt.footer.status` slot; we either sit beside it (`after`, overlay
-    // modes) or take it over (`replace`, takeover). Both claims render the same
-    // settings accessor and each returns null for the mode it does not own:
-    // - the overlay claim is `after`, so null is just "no extra sibling".
-    // - the takeover claim is `replace`; @opentui's Slot falls back to the
-    //   original children when a replace entry renders no output
-    //   (node_modules/@opentui/solid/index.js `renderEntry` -> resolveFallback,
-    //   and the `mode === "replace"` branch), so returning null restores the
-    //   built-in status row instead of blanking it.
-    // Returning both disposers keeps the pair mounted/removed together.
+    // Overlay meter for center/left/right. It sits *beside* the built-in row
+    // (`after`) and returns nothing in takeover, when the row is ours instead.
     const offOverlay = context.ui.slot({
       after: "prompt.footer.status",
       render: ({ sessionID }) =>
         settings().position === "takeover" ? null : (
-          <MeterText sessionID={sessionID} settings={settings} update={update} mode="overlay" />
+          <MeterText sessionID={sessionID} settings={settings} mode="overlay" />
         ),
     });
-    const offTakeover = context.ui.slot({
-      replace: "prompt.footer.status",
-      render: ({ sessionID }) =>
-        settings().position === "takeover" ? (
-          <FooterRow sessionID={sessionID} settings={settings} />
-        ) : null,
+    // Takeover's replace claim is registered/unregistered dynamically by this
+    // always-mounted manager, so a non-takeover position never suppresses the
+    // host's own status text/animation. Mounted on `app` so it lives for the
+    // plugin's whole lifetime regardless of the active view.
+    const offApp = context.ui.slot({
+      append: "app",
+      render: () => <PluginRoot settings={settings} update={update} />,
     });
     // Append below the built-in sidebar blocks. The whole list is hidden — not
     // just its rows — when the user turns the sidebar setting off.
@@ -619,7 +632,7 @@ export default Plugin.define({
     });
     return () => {
       offOverlay();
-      offTakeover();
+      offApp();
       offSidebar();
     };
   },
