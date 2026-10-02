@@ -1,11 +1,14 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import { usePlugin } from "@opencode/plugin/tui";
-import { readLastUser, readMessages, readStatus, sessionRun } from "./measure.ts";
-import { subagentSegments, type MeterOptions, type Segment } from "./options.ts";
+import { readStatus, sessionRun } from "./measure.ts";
+import { subagentSegments, type Segment, type Settings } from "./options.ts";
 
 const TICK_MS = 250;
 const NAME_MAX = 22;
 const MAX_ROWS = 8;
+// A finished row lingers this long after its last activity, so a subagent's
+// final numbers stay readable even if you don't look the moment it ends.
+const KEEP_MS = 15 * 60 * 1000;
 
 type Row = { id: string; created: number; segments: Segment[] };
 
@@ -29,13 +32,12 @@ export function sessionLabel(info: { agent?: string; title?: string }, id: strin
   return value.length > NAME_MAX ? `${value.slice(0, NAME_MAX - 1)}…` : value;
 }
 
-export function SubagentList(props: { sessionID: string; options: MeterOptions }) {
+export function SubagentList(props: { sessionID: string; settings: () => Settings }) {
   const ctx = usePlugin();
   const [rows, setRows] = createSignal<Row[]>([]);
 
   const tick = () => {
     const nowMs = Date.now();
-    const turnStart = readLastUser(readMessages(ctx, props.sessionID))?.created ?? 0;
     const ids = tryRead<string[]>(() => ctx.data.session.family(props.sessionID), []);
 
     const next: Row[] = [];
@@ -45,8 +47,12 @@ export function SubagentList(props: { sessionID: string; options: MeterOptions }
       if (!info?.parentID) continue;
       const running = readStatus(ctx, id) === "running";
       const created = info.time.created;
-      // Rows from an earlier turn fall away once the next prompt is sent.
-      if (!running && created < turnStart - 2000) continue;
+      // Done rows linger for KEEP_MS after their last activity; a running row
+      // always shows. Older ones drop off so the list stays current.
+      if (!running) {
+        const lastSeen = Math.max(Number(info.time.updated) || 0, created);
+        if (nowMs - lastSeen > KEEP_MS) continue;
+      }
       const stats = sessionRun(ctx, id, nowMs);
       next.push({
         id,
@@ -84,7 +90,7 @@ export function SubagentList(props: { sessionID: string; options: MeterOptions }
           <box onMouseUp={() => ctx.ui.router.navigate({ type: "session", sessionID: row.id })}>
             <text>
               {row.segments.map((seg) =>
-                seg.accent ? <span style={{ fg: props.options.color }}>{seg.text}</span> : seg.text,
+                seg.accent ? <span style={{ fg: props.settings().color }}>{seg.text}</span> : seg.text,
               )}
             </text>
           </box>

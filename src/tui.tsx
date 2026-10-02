@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onCleanup, untrack, Show } from "solid-js";
+import { createSignal, createEffect, onCleanup, untrack, Show, type Accessor } from "solid-js";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import { useTerminalDimensions } from "@opentui/solid";
 import {
@@ -12,11 +12,15 @@ import {
   type UserLike,
 } from "./measure.ts";
 import {
-  normalizeOptions,
+  mergeSettings,
   meterTier,
   justifyFor,
   meterSegments,
-  type MeterOptions,
+  speedBar,
+  observedMax,
+  isValidColor,
+  DEFAULT_SETTINGS,
+  type Settings,
 } from "./options.ts";
 import { SubagentList, sessionLabel } from "./sidebar.tsx";
 
@@ -32,9 +36,19 @@ type Line = { tps: number | null; elapsed: number };
 // to this without needing a signal.
 let lastDetail: string | null = null;
 
-function TpsView(props: { sessionID?: string; options: MeterOptions }) {
+// The menu builds a fresh loop each time it opens; the loop returns "exit" to
+// stop, or the id of the setting to edit next. Defensive furniture lives in
+// the run callback so a dialog error can never crash the TUI.
+type MenuChoice = "position" | "color" | "compact" | "sidebar" | "timer" | "bar" | "reset" | "exit";
+
+function TpsView(props: {
+  sessionID?: string;
+  settings: Accessor<Settings>;
+  update: (mutation: (draft: Settings) => void) => Promise<void>;
+}) {
   const ctx = usePlugin();
   const term = useTerminalDimensions();
+  const settings = () => props.settings();
   ctx.keymap.layer(() => ({
     mode: "global",
     commands: [
@@ -50,6 +64,27 @@ function TpsView(props: { sessionID?: string; options: MeterOptions }) {
             duration: 5000,
           }),
       },
+      {
+        id: "opencode2tps.settings",
+        title: "Opencode2TPS: Settings",
+        group: "Opencode2TPS",
+        palette: true,
+        slash: { name: "tps", aliases: ["tps-settings"] },
+        // async so the dialog awaits resolve; wired through ctx so it needs no
+        // other file. The loop lets the user change several settings in one go.
+        run: async () => {
+          try {
+            await settingsMenu(ctx, props);
+          } catch (error) {
+            ctx.ui.toast.show({
+              variant: "error",
+              title: "Opencode2TPS",
+              message: `settings failed: ${String(error)}`,
+              duration: 5000,
+            });
+          }
+        },
+      },
     ],
   }));
   const [line, setLine] = createSignal<Line | null>(null);
@@ -57,6 +92,8 @@ function TpsView(props: { sessionID?: string; options: MeterOptions }) {
   const [place, setPlace] = createSignal<string | null>(null);
 
   let turnStartedAt = 0;
+  // Full scale of the speed bar: the highest turn rate seen this session.
+  let sessionMax = 0;
   let streaming = false;
   let seenUser: UserLike | null = null;
   // 100ms polling only runs while the session is generating; idle sessions do
@@ -79,6 +116,7 @@ function TpsView(props: { sessionID?: string; options: MeterOptions }) {
 
   const reset = () => {
     turnStartedAt = 0;
+    sessionMax = 0;
     streaming = false;
     seenUser = null;
     show(null);
@@ -124,6 +162,8 @@ function TpsView(props: { sessionID?: string; options: MeterOptions }) {
     // holds the number and steps it down the moment the call finishes.
     const turn = turnMessages(messages);
     const rate = turnRate(turn, now);
+    // The bar's scale only grows, so it never jitters as the rate dips.
+    sessionMax = observedMax(rate, sessionMax, 0);
     const wallSec = (now - turnStartedAt) / 1000;
     const gen = aggregate(
       turn.filter((msg) => msg.type === "assistant"),
@@ -175,11 +215,18 @@ function TpsView(props: { sessionID?: string; options: MeterOptions }) {
 
   // Width picks the tier; compact hides the labels, too narrow hides the
   // whole meter so it never fights the built-in footer text for space.
-  const tier = () => meterTier(term().width, props.options.compact);
+  const tier = () => meterTier(term().width, settings().compact);
   const visible = () => line() !== null && tier() !== "hidden";
+  // Pre-rendered and unaccented: an empty string means no bar segment at all.
+  const bar = () => {
+    const value = line();
+    const s = props.settings();
+    if (!value || !s.showBar) return "";
+    return speedBar(value.tps, sessionMax);
+  };
   const segments = () => {
     const value = line();
-    return value ? meterSegments(value.tps, value.elapsed, tier()) : [];
+    return value ? meterSegments(value.tps, value.elapsed, tier(), settings().showTimer, bar()) : [];
   };
 
   // Absolutely positioned so it centres across the whole footer row instead of
@@ -194,7 +241,7 @@ function TpsView(props: { sessionID?: string; options: MeterOptions }) {
         right={0}
         zIndex={1}
         flexDirection="row"
-        justifyContent={justifyFor(props.options.position)}
+        justifyContent={justifyFor(settings().position)}
         flexShrink={0}
       >
         <box
@@ -206,7 +253,7 @@ function TpsView(props: { sessionID?: string; options: MeterOptions }) {
             {place() ? <span>{`↳ ${place()}  `}</span> : null}
             {segments().map((seg) =>
               seg.accent ? (
-                <span style={{ fg: props.options.color }}>{seg.text}</span>
+                <span style={{ fg: settings().color }}>{seg.text}</span>
               ) : (
                 seg.text
               ),
@@ -218,28 +265,160 @@ function TpsView(props: { sessionID?: string; options: MeterOptions }) {
   );
 }
 
+// One round of the settings menu. Returns the next choice to edit, or null to
+// close. Live text is re-read from the accessor so a cancelled colour prompt
+// keeps whatever the user had.
+async function settingsMenu(
+  ctx: ReturnType<typeof usePlugin>,
+  props: { settings: Accessor<Settings>; update: (mutation: (draft: Settings) => void) => Promise<void> },
+): Promise<void> {
+  let choice: MenuChoice = "position";
+  while (choice !== "exit") {
+    const current = props.settings();
+    const next = await ctx.ui.dialog.select<MenuChoice>({
+      title: "Opencode2TPS settings",
+      placeholder: "Pick a setting…",
+      options: [
+        { title: "Position", value: "position", description: current.position },
+        { title: "Color", value: "color", description: current.color },
+        { title: "Compact", value: "compact", description: current.compact ? "on" : "off" },
+        { title: "Show sidebar", value: "sidebar", description: current.showSidebar ? "on" : "off" },
+        { title: "Show timer", value: "timer", description: current.showTimer ? "on" : "off" },
+        { title: "Speed bar", value: "bar", description: current.showBar ? "on" : "off" },
+        { title: "Reset to defaults", value: "reset" },
+        { title: "Done", value: "exit" },
+      ],
+    });
+    if (next === undefined) return;
+
+    if (next === "position") {
+      const value = await ctx.ui.dialog.select<Settings["position"]>({
+        title: "TPS meter position",
+        options: [
+          { title: "Center", value: "center" },
+          { title: "Left", value: "left" },
+          { title: "Right", value: "right" },
+        ],
+        current: props.settings().position,
+      });
+      if (value !== undefined) {
+        await props.update((draft) => {
+          draft.position = value;
+        });
+        ctx.ui.toast.show({ variant: "success", message: `TPS position: ${value}` });
+      }
+    } else if (next === "color") {
+      const value = await ctx.ui.dialog.prompt({
+        title: "TPS colour",
+        placeholder: DEFAULT_SETTINGS.color,
+        value: props.settings().color,
+      });
+      // undefined = cancelled; keep the old value, no toast spam.
+      if (value !== undefined) {
+        if (isValidColor(value)) {
+          const color = value.trim();
+          await props.update((draft) => {
+            draft.color = color;
+          });
+          ctx.ui.toast.show({ variant: "success", message: `TPS colour: ${color}` });
+        } else {
+          ctx.ui.toast.show({
+            variant: "warning",
+            message: `invalid colour "${value}", keeping ${props.settings().color}`,
+            duration: 5000,
+          });
+        }
+      }
+    } else if (next === "compact" || next === "sidebar" || next === "timer" || next === "bar") {
+      const key =
+        next === "compact"
+          ? "compact"
+          : next === "sidebar"
+            ? "showSidebar"
+            : next === "timer"
+              ? "showTimer"
+              : "showBar";
+      const label =
+        next === "compact"
+          ? "Compact"
+          : next === "sidebar"
+            ? "Show sidebar"
+            : next === "timer"
+              ? "Show timer"
+              : "Speed bar";
+      const value = await ctx.ui.dialog.select<boolean>({
+        title: label,
+        options: [
+          { title: "On", value: true },
+          { title: "Off", value: false },
+        ],
+        current: props.settings()[key],
+      });
+      if (value !== undefined) {
+        await props.update((draft) => {
+          draft[key] = value;
+        });
+        ctx.ui.toast.show({ variant: "success", message: `${label}: ${value ? "on" : "off"}` });
+      }
+    } else if (next === "reset") {
+      await props.update((draft) => {
+        draft.position = DEFAULT_SETTINGS.position;
+        draft.color = DEFAULT_SETTINGS.color;
+        draft.compact = DEFAULT_SETTINGS.compact;
+        draft.showSidebar = DEFAULT_SETTINGS.showSidebar;
+        draft.showTimer = DEFAULT_SETTINGS.showTimer;
+        draft.showBar = DEFAULT_SETTINGS.showBar;
+      });
+      ctx.ui.toast.show({ variant: "success", message: "Opencode2TPS reset to defaults" });
+    }
+
+    choice = next === "exit" ? "exit" : "position";
+  }
+}
+
 export default Plugin.define({
   id: "opencode2tps",
   setup(context) {
-    const { options, invalid } = normalizeOptions(context.options);
+    // cli.json options are gone; the durable store is the single source of
+    // truth. Create it once so every reader shares the same live instance and
+    // hand-edits / cross-instance sync stay reactive.
+    const [settingsStore, setSettings] = context.storage.store<Settings>("settings", {
+      initial: DEFAULT_SETTINGS,
+    });
+    // Re-runs whenever the store changes; mergeSettings drops unknown keys and
+    // falls back on out-of-range values, so a bad store can't break the meter.
+    const settings = (): Settings => mergeSettings(settingsStore).settings;
+    // The menu's only mutation path; keeping it in setup avoids a signal the
+    // settings accessor would have to know about.
+    const update = (mutation: (draft: Settings) => void) => setSettings(mutation);
+
+    const invalid = mergeSettings(settingsStore).invalid;
     if (invalid.length > 0) {
       context.ui.toast.show({
         title: "Opencode2TPS",
-        message: `ignoring invalid option(s): ${invalid.join(", ")}`,
+        message: `ignoring invalid setting(s): ${invalid.join(", ")}`,
         variant: "warning",
         duration: 5000,
       });
     }
+
     // Sibling of the built-in status, absolutely positioned to centre across
     // the whole footer row.
     const offFooter = context.ui.slot({
       after: "prompt.footer.status",
-      render: ({ sessionID }) => <TpsView sessionID={sessionID} options={options} />,
+      render: ({ sessionID }) => (
+        <TpsView sessionID={sessionID} settings={settings} update={update} />
+      ),
     });
-    // Append below the built-in sidebar blocks; renders only with the sidebar.
+    // Append below the built-in sidebar blocks. The whole list is hidden — not
+    // just its rows — when the user turns the sidebar setting off.
     const offSidebar = context.ui.slot({
       append: "sidebar.content",
-      render: ({ sessionID }) => <SubagentList sessionID={sessionID} options={options} />,
+      render: ({ sessionID }) => (
+        <Show when={settings().showSidebar}>
+          <SubagentList sessionID={sessionID} settings={settings} />
+        </Show>
+      ),
     });
     return () => {
       offFooter();
