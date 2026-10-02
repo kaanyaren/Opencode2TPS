@@ -161,6 +161,21 @@ export function turnRate(turn: MsgLike[], nowMs: number): number | null {
   return calcTps(total, Math.max(MIN_SPAN_SEC, genMs / 1000 + toolSec(turn)));
 }
 
+// Latest completion time among the turn's assistant messages, `nowMs` while any
+// assistant is still in flight, or `nowMs` when the turn has no assistant yet.
+// Anchors the finished-turn wall time without relying on component state
+// (which a remount would lose).
+export function turnEnd(turn: MsgLike[], nowMs: number): number {
+  let end = 0;
+  for (const msg of turn) {
+    if (msg?.type !== "assistant") continue;
+    const completed = num(msg.time?.completed);
+    if (completed === null) return nowMs;
+    if (completed > end) end = completed;
+  }
+  return end > 0 ? end : nowMs;
+}
+
 export function sessionRun(ctx: Context, sessionID: string, nowMs: number): RunStats {
   const messages = readMessages(ctx, sessionID);
   const assistants = messages.filter((msg) => msg?.type === "assistant");

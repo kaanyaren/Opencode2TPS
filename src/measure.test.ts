@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Context } from "@opencode/plugin/tui/context";
-import { aggregate, messageRate, sessionRun, toolSec, turnMessages, turnRate, CHARS_PER_TOKEN, type MsgLike } from "./measure.ts";
+import { aggregate, messageRate, sessionRun, toolSec, turnEnd, turnMessages, turnRate, CHARS_PER_TOKEN, type MsgLike } from "./measure.ts";
 
 const close = (actual: number | null | undefined, expected: number) =>
   assert.ok(Math.abs((actual ?? NaN) - expected) < 1e-9, `${actual} !≈ ${expected}`);
@@ -151,4 +151,17 @@ test("sessionRun rate matches the footer turn rate, including a completed tool w
   // genSec still excludes the tool wait, tokens still sum output+reasoning.
   close(stats.genSec, 2);
   assert.equal(stats.tokens, 200);
+});
+
+test("turnEnd anchors to the latest assistant completion, not mount time", () => {
+  const done: MsgLike = { type: "assistant", time: { created: 0, completed: 5000 } };
+  const later: MsgLike = { type: "assistant", time: { created: 5000, completed: 8000 } };
+  // Latest completion wins, so a remounted meter freezes at the real end.
+  assert.equal(turnEnd([done, later], 999_999), 8000);
+  // An in-flight assistant (no completed) falls back to the supplied now.
+  assert.equal(turnEnd([done, { type: "assistant", time: { created: 8000 } }], 9000), 9000);
+  // No assistant at all (prompt just sent) also falls back.
+  assert.equal(turnEnd([{ type: "user" }], 1234), 1234);
+  // Non-numeric completed values are ignored.
+  assert.equal(turnEnd([{ type: "assistant", time: { created: 0, completed: Number.NaN } }], 77), 77);
 });

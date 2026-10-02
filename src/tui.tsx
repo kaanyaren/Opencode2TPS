@@ -7,6 +7,7 @@ import {
   readStatus,
   turnMessages,
   turnRate,
+  turnEnd,
   aggregate,
   toolSec,
   type UserLike,
@@ -163,6 +164,7 @@ function MeterText(props: {
     // Idle alone never ends the turn — the display just freezes.
     const messages = readMessages(ctx, sessionID);
     const lastUser = readLastUser(messages);
+    const turn = turnMessages(messages);
     if (lastUser && !seenUser) {
       seenUser = lastUser;
     } else if (lastUser && seenUser && lastUser.id !== seenUser.id && status !== "running") {
@@ -172,16 +174,30 @@ function MeterText(props: {
       seenUser = lastUser;
     }
 
-    if (status !== "running") return;
+    if (status !== "running") {
+      // Rebuild the finished-turn value when we have none (e.g. the footer just
+      // remounted after navigating back from a subagent), so it stays on screen
+      // instead of blanking — the low-cost companion to the timer anchor below.
+      if (line() === null && lastUser && turn.some((msg) => msg.type === "assistant")) {
+        const end = turnEnd(turn, now);        if (end >= lastUser.created) {
+          const rate = turnRate(turn, end);
+          sessionMax = observedMax(rate, sessionMax, 0);
+          show({ tps: rate, elapsed: (end - lastUser.created) / 1000 });
+        }
+      }
+      return;
+    }
     if (!streaming) {
       streaming = true;
-      turnStartedAt = now;
+      // Anchor to the turn's real prompt, not to when this component happened
+      // to mount: navigating into a subagent and back remounts the meter, and a
+      // mount-anchored clock would restart the wall timer from zero.
+      turnStartedAt = lastUser?.created ?? now;
     }
 
     // Rate covers the whole turn: generated tokens over generation + tool-wait
     // seconds. Tool waits land when the call returns, so an MCP/shell call
     // holds the number and steps it down the moment the call finishes.
-    const turn = turnMessages(messages);
     const rate = turnRate(turn, now);
     // The bar's scale only grows, so it never jitters as the rate dips.
     sessionMax = observedMax(rate, sessionMax, 0);
