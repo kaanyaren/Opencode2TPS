@@ -41,13 +41,6 @@ export function readMessages(ctx: Context, sessionID: string): MsgLike[] {
   }
 }
 
-export function readLastAssistant(messages: MsgLike[]): MsgLike | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.type === "assistant") return messages[i];
-  }
-  return null;
-}
-
 export function readLastUser(messages: MsgLike[]): UserLike | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -171,11 +164,10 @@ export function turnRate(turn: MsgLike[], nowMs: number): number | null {
 export function sessionRun(ctx: Context, sessionID: string, nowMs: number): RunStats {
   const messages = readMessages(ctx, sessionID);
   const assistants = messages.filter((msg) => msg?.type === "assistant");
-  const { tokens, genSec, avgRate } = aggregate(assistants, nowMs);
+  const { tokens, genSec } = aggregate(assistants, nowMs);
   const running = readStatus(ctx, sessionID) === "running";
-  const last = readLastAssistant(messages);
-  // Running: live per-step rate so the row moves; frozen run average between
-  // steps and once done.
-  const rate = running && last ? (messageRate(last, nowMs) ?? avgRate) : avgRate;
+  // Same rate definition as the footer: this turn's tokens over generation
+  // plus completed tool-wait seconds, so the row and footer never disagree.
+  const rate = turnRate(turnMessages(messages), nowMs);
   return { running, rate, genSec, tokens };
 }

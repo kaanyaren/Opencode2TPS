@@ -1,12 +1,13 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import { usePlugin } from "@opencode/plugin/tui";
 import { readLastUser, readMessages, readStatus, sessionRun } from "./measure.ts";
+import { subagentSegments, type MeterOptions, type Segment } from "./options.ts";
 
 const TICK_MS = 250;
 const NAME_MAX = 22;
 const MAX_ROWS = 8;
 
-type Row = { id: string; created: number; text: string };
+type Row = { id: string; created: number; segments: Segment[] };
 
 function tryRead<T>(read: () => T, fallback: T): T {
   try {
@@ -28,7 +29,7 @@ export function sessionLabel(info: { agent?: string; title?: string }, id: strin
   return value.length > NAME_MAX ? `${value.slice(0, NAME_MAX - 1)}…` : value;
 }
 
-export function SubagentList(props: { sessionID: string }) {
+export function SubagentList(props: { sessionID: string; options: MeterOptions }) {
   const ctx = usePlugin();
   const [rows, setRows] = createSignal<Row[]>([]);
 
@@ -47,11 +48,10 @@ export function SubagentList(props: { sessionID: string }) {
       // Rows from an earlier turn fall away once the next prompt is sent.
       if (!running && created < turnStart - 2000) continue;
       const stats = sessionRun(ctx, id, nowMs);
-      const rate = stats.rate === null ? "—" : stats.rate.toFixed(1);
       next.push({
         id,
         created,
-        text: `${marker(running, info.outcome)} ${sessionLabel(info, id)}  ${rate} tps  ${stats.genSec.toFixed(1)} s`,
+        segments: subagentSegments(marker(running, info.outcome), sessionLabel(info, id), stats.rate, stats.genSec),
       });
     }
     next.sort((a, b) => a.created - b.created);
@@ -82,7 +82,11 @@ export function SubagentList(props: { sessionID: string }) {
       <box flexDirection="column" gap={0}>
         {rows().map((row) => (
           <box onMouseUp={() => ctx.ui.router.navigate({ type: "session", sessionID: row.id })}>
-            <text>{row.text}</text>
+            <text>
+              {row.segments.map((seg) =>
+                seg.accent ? <span style={{ fg: props.options.color }}>{seg.text}</span> : seg.text,
+              )}
+            </text>
           </box>
         ))}
       </box>

@@ -29,7 +29,8 @@
     "build": "node scripts/build.mjs",
     "prepack": "npm run build",
     "test": "node --test src/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "peerDependencies": {
     "@opencode/plugin": ">=2.0.20"

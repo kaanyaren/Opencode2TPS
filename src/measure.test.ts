@@ -1,7 +1,9 @@
-// Covers messageRate (exact + live paths, clamping, null cases) and aggregate summation.
+// Covers messageRate (exact + live paths, clamping, null cases), aggregate
+// summation, and sessionRun's footer-aligned turn rate.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aggregate, messageRate, toolSec, turnMessages, turnRate, CHARS_PER_TOKEN, type MsgLike } from "./measure.ts";
+import type { Context } from "@opencode/plugin/tui/context";
+import { aggregate, messageRate, sessionRun, toolSec, turnMessages, turnRate, CHARS_PER_TOKEN, type MsgLike } from "./measure.ts";
 
 const close = (actual: number | null | undefined, expected: number) =>
   assert.ok(Math.abs((actual ?? NaN) - expected) < 1e-9, `${actual} !≈ ${expected}`);
@@ -122,4 +124,31 @@ test("turnRate holds through an in-flight tool call, then drops", () => {
 test("turnRate estimates the in-flight step from streamed chars", () => {
   const msg: MsgLike = { type: "assistant", time: { created: 0 }, content: [chars("text", 420)] };
   close(turnRate([msg], 10_000), 420 / CHARS_PER_TOKEN / 10);
+});
+
+// sessionRun only reads message.list and status off the context; stub just those.
+const ctxFor = (messages: MsgLike[], status: "idle" | "running" = "idle") =>
+  ({
+    data: {
+      session: {
+        message: { list: () => messages },
+        status: () => status,
+      },
+    },
+  }) as unknown as Context;
+
+test("sessionRun rate matches the footer turn rate, including a completed tool wait", () => {
+  const msg: MsgLike = {
+    type: "assistant",
+    time: { created: 0, completed: 2000 },
+    tokens: { output: 200, reasoning: 0 },
+    content: [{ type: "tool", time: { created: 2000, completed: 6000 } }],
+  };
+  const stats = sessionRun(ctxFor([msg]), "child", 6000);
+  // 200 tokens over 2s generation + 4s tool wait, exactly like the footer.
+  close(stats.rate, 200 / 6);
+  close(stats.rate, turnRate(turnMessages([msg]), 6000)!);
+  // genSec still excludes the tool wait, tokens still sum output+reasoning.
+  close(stats.genSec, 2);
+  assert.equal(stats.tokens, 200);
 });
