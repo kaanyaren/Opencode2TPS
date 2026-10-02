@@ -79,7 +79,7 @@ function TpsView(props: {
         title: "Opencode2TPS: Settings",
         group: "Opencode2TPS",
         palette: true,
-        slash: { name: "tps", aliases: ["tps-settings"] },
+        slash: { name: "tps" },
         // async so the dialog awaits resolve; wired through ctx so it needs no
         // other file. The loop lets the user change several settings in one go.
         run: async () => {
@@ -224,7 +224,9 @@ function TpsView(props: {
   tick();
 
   // Width picks the tier; compact hides the labels, too narrow hides the
-  // whole meter so it never fights the built-in footer text for space.
+  // whole meter so it never fights the built-in footer text for space. Only the
+  // center position draws on top of the built-in row; left/right keep to the
+  // edges the host leaves empty, so they never cover the status/progress text.
   const tier = () => meterTier(term().width, settings().compact);
   const visible = () => line() !== null && tier() !== "hidden";
   // Pre-rendered and unaccented: an empty string means no bar segment at all.
@@ -239,41 +241,45 @@ function TpsView(props: {
     return value ? meterSegments(value.tps, value.elapsed, tier(), settings().showTimer, bar()) : [];
   };
 
-  // Absolutely positioned so it centres across the whole footer row instead of
-  // competing with the built-in status text for flex space. The inner box is
-  // content-width so its background only masks the built-in text where the
-  // meter actually sits. The padding is the configured gap on BOTH sides
-  // because the meter is absolutely positioned across the full row, so equal
-  // padding makes the visual gap to the left content and the right content
-  // match.
+  // Center draws across the whole footer row (absolutely positioned so it
+  // doesn't compete with the built-in status text for flex space) and masks
+  // what it covers. Left/right instead sit in the row's natural flow, at the
+  // edges the host leaves empty, so the status/progress text is never covered.
+  // gap pads the meter symmetrically either way.
+  const pad = () => clampGap(settings().gap);
+  const content = () => (
+    <text wrapMode="none">
+      {place() ? <span>{`↳ ${place()}  `}</span> : null}
+      {segments().map((seg) =>
+        seg.accent ? <span style={{ fg: settings().color }}>{seg.text}</span> : seg.text,
+      )}
+    </text>
+  );
+
   return (
     <Show when={visible()}>
-      <box
-        position="absolute"
-        left={0}
-        right={0}
-        zIndex={1}
-        flexDirection="row"
-        justifyContent={justifyFor(settings().position)}
-        flexShrink={0}
+      <Show
+        when={settings().position === "center"}
+        fallback={
+          <box flexShrink={0} paddingLeft={pad()} paddingRight={pad()} backgroundColor={ctx.theme.background.base}>
+            {content()}
+          </box>
+        }
       >
         <box
-          backgroundColor={ctx.theme.background.base}
-          paddingLeft={clampGap(settings().gap)}
-          paddingRight={clampGap(settings().gap)}
+          position="absolute"
+          left={0}
+          right={0}
+          zIndex={1}
+          flexDirection="row"
+          justifyContent={justifyFor(settings().position)}
+          flexShrink={0}
         >
-          <text wrapMode="none">
-            {place() ? <span>{`↳ ${place()}  `}</span> : null}
-            {segments().map((seg) =>
-              seg.accent ? (
-                <span style={{ fg: settings().color }}>{seg.text}</span>
-              ) : (
-                seg.text
-              ),
-            )}
-          </text>
+          <box backgroundColor={ctx.theme.background.base} paddingLeft={pad()} paddingRight={pad()}>
+            {content()}
+          </box>
         </box>
-      </box>
+      </Show>
     </Show>
   );
 }
