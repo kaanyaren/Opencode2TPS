@@ -338,16 +338,20 @@ function FooterRow(props: { sessionID?: string; settings: Accessor<Settings> }) 
     }
   };
 
-  // No status text can be reproduced from the plugin API, and there is no
-  // spinner element in @opentui 0.5.13, so takeover's left block is just the
-  // location. The spinner (and `hideSpinner`) live on the middle block.
+  // The host's own status text can't be reproduced from the plugin API, so
+  // takeover's left block is just the location; the spinner (toggleable via
+  // `hideSpinner`) and meter live on the middle block, the model on the right.
   return (
+    // Mirror the built-in status box it replaces (flexGrow:1, flexShrink:1,
+    // minWidth:0) so the row's other children — notably the host's right-aligned
+    // key hints — keep their space instead of being pushed off-screen.
     <box
-      width="100%"
       height={1}
       flexDirection="row"
       gap={rowGap(props.settings().gap, true)}
-      flexShrink={0}
+      flexGrow={1}
+      flexShrink={1}
+      minWidth={0}
       backgroundColor={ctx.theme.background.base}
     >
       <box flexGrow={1} flexShrink={1} minWidth={0}>
