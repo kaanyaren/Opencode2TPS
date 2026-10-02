@@ -149,7 +149,15 @@ function TpsView(props: { sessionID?: string }) {
   // Absolutely positioned so it centres across the whole footer row instead of
   // competing with the built-in status text for flex space.
   return (
-    <box position="absolute" left={0} right={0} zIndex={1} justifyContent="center" flexShrink={0}>
+    <box
+      position="absolute"
+      left={0}
+      right={0}
+      zIndex={1}
+      flexDirection="row"
+      justifyContent="center"
+      flexShrink={0}
+    >
       <text wrapMode="none">
         {place() ? `↳ ${place()}  ` : ""}
         <span style={{ fg: MINT }}>{tpsText()}</span>
