@@ -15,6 +15,7 @@ import {
   meterSegments,
   meterTier,
   observedMax,
+  rowGap,
   speedBar,
   subagentSegments,
 } from "./options.ts";
@@ -313,4 +314,48 @@ test("subagentSegments accents the value and label only", () => {
     { text: " tps", accent: true },
     { text: "  3.2 s" },
   ]);
+});
+
+test("mergeSettings accepts position takeover", () => {
+  const { settings, invalid } = mergeSettings({ position: "takeover" });
+  assert.equal(settings.position, "takeover");
+  assert.deepEqual(invalid, []);
+});
+
+test("mergeSettings defaults hideSpinner to false", () => {
+  assert.equal(DEFAULT_SETTINGS.hideSpinner, false);
+  const { settings, invalid } = mergeSettings({});
+  assert.equal(settings.hideSpinner, false);
+  assert.deepEqual(invalid, []);
+});
+
+for (const value of [true, false]) {
+  test(`mergeSettings accepts boolean ${value} for hideSpinner`, () => {
+    const { settings, invalid } = mergeSettings({ hideSpinner: value });
+    assert.equal(settings.hideSpinner, value);
+    assert.deepEqual(invalid, []);
+  });
+}
+
+test("mergeSettings falls back on a non-boolean hideSpinner and lists it", () => {
+  const { settings, invalid } = mergeSettings({ hideSpinner: "yes" });
+  assert.equal(settings.hideSpinner, DEFAULT_SETTINGS.hideSpinner);
+  assert.deepEqual(invalid, ["hideSpinner"]);
+});
+
+test("rowGap passes the gap through in takeover mode", () => {
+  assert.equal(rowGap(3, true), 3);
+});
+
+test("rowGap is zero outside takeover mode", () => {
+  assert.equal(rowGap(3, false), 0);
+});
+
+test("rowGap clamps out-of-range values in takeover mode", () => {
+  assert.equal(rowGap(-2, true), 0);
+  assert.equal(rowGap(99, true), 8);
+});
+
+test("rowGap falls back to the default gap for NaN in takeover mode", () => {
+  assert.equal(rowGap(Number.NaN, true), DEFAULT_SETTINGS.gap);
 });

@@ -47,13 +47,14 @@ to open the settings menu.
 
 | Setting | Values | Default | Notes |
 | --- | --- | --- | --- |
-| `position` | center / left / right | center | Where the meter sits in the footer row. |
+| `position` | center / left / right / takeover | center | Where the meter sits in the footer row. `takeover` owns the whole status row and rebuilds it as `[location] [meter] [model]`, so nothing overlaps and the edges are exact (it drops the host's own status text and context/health blocks). |
 | `color` | hex string | `#6ee7b7` | Colour of the TPS value and `tps` label. |
 | `gap` | 0–8 (columns) | 2 | Blank columns kept around the meter, so the spacing to the left content and the right content reads as equal. |
 | `compact` | on / off | off | When on, show just the number, e.g. `42.1`. |
 | `showSidebar` | on / off | on | Show the subagent list in the sidebar. |
 | `showTimer` | on / off | on | Show the ` | 3.2 s` wall-time segment. |
 | `showBar` | on / off | on | Show a fixed 8-cell speed bar (`████░░░░`); zero tps is a fully empty bar, the session's observed maximum is a full bar. Drawn in the configured `color`. |
+| `hideSpinner` | on / off | off | Hide the loading spinner shown next to the meter while generating. |
 
 Settings persist across TUI restarts and sync across running TUI instances;
 "Reset to defaults" clears them.

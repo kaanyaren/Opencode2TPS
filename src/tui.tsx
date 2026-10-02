@@ -20,6 +20,7 @@ import {
   observedMax,
   isValidColor,
   clampGap,
+  rowGap,
   DEFAULT_SETTINGS,
   type Settings,
 } from "./options.ts";
@@ -48,13 +49,23 @@ type MenuChoice =
   | "sidebar"
   | "timer"
   | "bar"
+  | "spinner"
   | "reset"
   | "exit";
 
-function TpsView(props: {
+// The meter's whole state machine and render. `mode` picks the shell:
+// - "overlay" (center/left/right): an absolutely-positioned full-width row that
+//   floats over the built-in status; justifyContent pins it to the configured
+//   edge, and the inner box only masks the built-in text it actually sits on.
+// - "inline" (takeover): just the meter text, no wrapper/positioning, so
+//   FooterRow can drop it in as the middle flex item of a row it owns.
+// Everything above the return is identical for both modes — the split is only
+// the outer element, so takeover reuses the exact same measurement logic.
+function MeterText(props: {
   sessionID?: string;
   settings: Accessor<Settings>;
   update: (mutation: (draft: Settings) => void) => Promise<void>;
+  mode: "overlay" | "inline";
 }) {
   const ctx = usePlugin();
   const term = useTerminalDimensions();
@@ -241,6 +252,16 @@ function TpsView(props: {
     return value ? meterSegments(value.tps, value.elapsed, tier(), settings().showTimer, bar()) : [];
   };
 
+  // Read straight from the store rather than the interval signal, so the spinner
+  // reflects running state in both overlay and takeover modes.
+  const running = () => {
+    try {
+      return props.sessionID ? readStatus(ctx, props.sessionID) === "running" : false;
+    } catch {
+      return false;
+    }
+  };
+
   // The meter is a full-row absolute overlay (so it can reach either edge),
   // with justifyContent set per position: left → flex-start, right → flex-end,
   // center → center. Because the overlay's inner box is content-width, it only
@@ -254,6 +275,22 @@ function TpsView(props: {
       )}
     </text>
   );
+
+  // Inline mode is a takeover-middle item: a spinner (unless hidden) then the
+  // meter text. No positioning wrapper — FooterRow owns the row, and its gap
+  // spaces this block.
+  if (props.mode === "inline") {
+    return (
+      <Show when={visible()}>
+        <box flexDirection="row" gap={1} alignItems="center">
+          <Show when={running() && !settings().hideSpinner}>
+            <spinner interval={40} />
+          </Show>
+          {content()}
+        </box>
+      </Show>
+    );
+  }
 
   return (
     <Show when={visible()}>
@@ -271,6 +308,95 @@ function TpsView(props: {
         </box>
       </box>
     </Show>
+  );
+}
+
+// Takeover layout: we claim the whole `prompt.footer.status` slot and rebuild
+// the status row ourselves as `[left | meter | right]`, so nothing overlaps and
+// the left/right pins are real. Everything here is reconstructed from the
+// plugin API, which does not expose the host's own status text (the
+// "interrupt"/hint line) or the context/cost, LSP/MCP health blocks — those are
+// deliberately omitted rather than faked.
+function FooterRow(props: { sessionID?: string; settings: Accessor<Settings> }) {
+  const ctx = usePlugin();
+
+  // Session directory, preferring the open session's location and falling back
+  // to the context's own cwd. `ui.format.path` abbreviates the home prefix.
+  const directory = (): string | null => {
+    try {
+      const session = props.sessionID ? ctx.data.session.get(props.sessionID) : undefined;
+      const dir = session?.location?.directory ?? ctx.location?.directory;
+      if (!dir) return null;
+      const formatted = ctx.ui.format?.path?.(dir);
+      return formatted || dir;
+    } catch {
+      return null;
+    }
+  };
+
+  // `directory:branch` when the branch is known, else just the directory.
+  const location = (): string | null => {
+    const dir = directory();
+    if (!dir) return null;
+    try {
+      const branch = ctx.data.location.vcs.info(ctx.location)?.branch?.current;
+      return branch ? `${dir}:${branch}` : dir;
+    } catch {
+      return dir;
+    }
+  };
+
+  // Selected model. SessionInfo.model is a ModelRef ({ id, providerID,
+  // variant? }); the string branch is kept for a hand-built/unexpected store.
+  const model = (): string | null => {
+    try {
+      if (!props.sessionID) return null;
+      const m = ctx.data.session.get(props.sessionID)?.model;
+      if (!m) return null;
+      if (typeof m === "string") return m || null;
+      const id = typeof m.id === "string" ? m.id : undefined;
+      return id ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  // No status text can be reproduced from the plugin API, and there is no
+  // spinner element in @opentui 0.5.13, so takeover's left block is just the
+  // location. The spinner (and `hideSpinner`) live on the middle block.
+  return (
+    <box
+      width="100%"
+      height={1}
+      flexDirection="row"
+      gap={rowGap(props.settings().gap, true)}
+      flexShrink={0}
+      backgroundColor={ctx.theme.background.base}
+    >
+      <box flexGrow={1} flexShrink={1} minWidth={0}>
+        <text wrapMode="none" truncate fg={ctx.theme.text.muted}>
+          {location() ?? ""}
+        </text>
+      </box>
+      <box flexShrink={0}>
+        <MeterText
+          sessionID={props.sessionID}
+          settings={props.settings}
+          update={
+            // Takeover never edits settings (there is only one store and the
+            // menu is registered by the overlay claim's palette command), so the
+            // dropdown callback is inert here.
+            async () => {}
+          }
+          mode="inline"
+        />
+      </box>
+      <box flexShrink={0}>
+        <text wrapMode="none" truncate fg={ctx.theme.text.base}>
+          {model() ?? ""}
+        </text>
+      </box>
+    </box>
   );
 }
 
@@ -295,6 +421,7 @@ async function settingsMenu(
         { title: "Show sidebar", value: "sidebar", description: current.showSidebar ? "on" : "off" },
         { title: "Show timer", value: "timer", description: current.showTimer ? "on" : "off" },
         { title: "Speed bar", value: "bar", description: current.showBar ? "on" : "off" },
+        { title: "Hide spinner", value: "spinner", description: current.hideSpinner ? "on" : "off" },
         { title: "Reset to defaults", value: "reset" },
         { title: "Done", value: "exit" },
       ],
@@ -308,6 +435,7 @@ async function settingsMenu(
           { title: "Center", value: "center" },
           { title: "Left", value: "left" },
           { title: "Right", value: "right" },
+          { title: "Takeover", value: "takeover" },
         ],
         current: props.settings().position,
       });
@@ -359,7 +487,7 @@ async function settingsMenu(
         });
         ctx.ui.toast.show({ variant: "success", message: `Gap: ${clampGap(value)} columns` });
       }
-    } else if (next === "compact" || next === "sidebar" || next === "timer" || next === "bar") {
+    } else if (next === "compact" || next === "sidebar" || next === "timer" || next === "bar" || next === "spinner") {
       const key =
         next === "compact"
           ? "compact"
@@ -367,7 +495,9 @@ async function settingsMenu(
             ? "showSidebar"
             : next === "timer"
               ? "showTimer"
-              : "showBar";
+              : next === "bar"
+                ? "showBar"
+                : "hideSpinner";
       const label =
         next === "compact"
           ? "Compact"
@@ -375,7 +505,9 @@ async function settingsMenu(
             ? "Show sidebar"
             : next === "timer"
               ? "Show timer"
-              : "Speed bar";
+              : next === "bar"
+                ? "Speed bar"
+                : "Hide spinner";
       const value = await ctx.ui.dialog.select<boolean>({
         title: label,
         options: [
@@ -399,6 +531,7 @@ async function settingsMenu(
         draft.showSidebar = DEFAULT_SETTINGS.showSidebar;
         draft.showTimer = DEFAULT_SETTINGS.showTimer;
         draft.showBar = DEFAULT_SETTINGS.showBar;
+        draft.hideSpinner = DEFAULT_SETTINGS.hideSpinner;
       });
       ctx.ui.toast.show({ variant: "success", message: "Opencode2TPS reset to defaults" });
     }
@@ -433,13 +566,30 @@ export default Plugin.define({
       });
     }
 
-    // Sibling of the built-in status, absolutely positioned to centre across
-    // the whole footer row.
-    const offFooter = context.ui.slot({
+    // Two claims, one row. The host's prompt footer row owns the
+    // `prompt.footer.status` slot; we either sit beside it (`after`, overlay
+    // modes) or take it over (`replace`, takeover). Both claims render the same
+    // settings accessor and each returns null for the mode it does not own:
+    // - the overlay claim is `after`, so null is just "no extra sibling".
+    // - the takeover claim is `replace`; @opentui's Slot falls back to the
+    //   original children when a replace entry renders no output
+    //   (node_modules/@opentui/solid/index.js `renderEntry` -> resolveFallback,
+    //   and the `mode === "replace"` branch), so returning null restores the
+    //   built-in status row instead of blanking it.
+    // Returning both disposers keeps the pair mounted/removed together.
+    const offOverlay = context.ui.slot({
       after: "prompt.footer.status",
-      render: ({ sessionID }) => (
-        <TpsView sessionID={sessionID} settings={settings} update={update} />
-      ),
+      render: ({ sessionID }) =>
+        settings().position === "takeover" ? null : (
+          <MeterText sessionID={sessionID} settings={settings} update={update} mode="overlay" />
+        ),
+    });
+    const offTakeover = context.ui.slot({
+      replace: "prompt.footer.status",
+      render: ({ sessionID }) =>
+        settings().position === "takeover" ? (
+          <FooterRow sessionID={sessionID} settings={settings} />
+        ) : null,
     });
     // Append below the built-in sidebar blocks. The whole list is hidden — not
     // just its rows — when the user turns the sidebar setting off.
@@ -452,7 +602,8 @@ export default Plugin.define({
       ),
     });
     return () => {
-      offFooter();
+      offOverlay();
+      offTakeover();
       offSidebar();
     };
   },

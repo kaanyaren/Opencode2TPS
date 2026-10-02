@@ -3,7 +3,7 @@
 
 export const MINT = "#6ee7b7";
 
-export type Position = "center" | "left" | "right";
+export type Position = "center" | "left" | "right" | "takeover";
 
 export type Settings = {
   position: Position;
@@ -14,6 +14,8 @@ export type Settings = {
   showBar: boolean;
   /** Blank columns kept between the left content, the meter, and the right content. */
   gap: number;
+  /** Hide the spinner while a turn is generating (avoids double animation). */
+  hideSpinner: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -24,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showTimer: true,
   showBar: true,
   gap: 2,
+  hideSpinner: false,
 };
 
 // Padding before the first and after the last item in the footer row, so the
@@ -57,6 +60,11 @@ export function justifyFor(position: Position): "flex-start" | "center" | "flex-
   if (position === "left") return "flex-start";
   if (position === "right") return "flex-end";
   return "center";
+}
+
+// Takeover layout removes the meter's own padding; the row gap supplies it.
+export function rowGap(gap: number, takeover: boolean): number {
+  return takeover ? clampGap(gap) : 0;
 }
 
 // One run of text plus whether it uses the configured accent colour.
@@ -145,7 +153,7 @@ export function mergeSettings(raw: unknown): { settings: Settings; invalid: stri
   const value = raw as Record<string, unknown>;
   if ("position" in value) {
     const position = value.position;
-    if (position === "center" || position === "left" || position === "right") {
+    if (position === "center" || position === "left" || position === "right" || position === "takeover") {
       settings.position = position;
     } else invalid.push("position");
   }
@@ -162,7 +170,7 @@ export function mergeSettings(raw: unknown): { settings: Settings; invalid: stri
       invalid.push("gap");
     }
   }
-  for (const key of ["compact", "showSidebar", "showTimer", "showBar"] as const) {
+  for (const key of ["compact", "showSidebar", "showTimer", "showBar", "hideSpinner"] as const) {
     if (key in value) {
       if (typeof value[key] === "boolean") settings[key] = value[key];
       else invalid.push(key);
