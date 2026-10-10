@@ -99,17 +99,17 @@ test("toolSec sums completed tool waits and skips the in-flight one", () => {
   close(toolSec([msg]), 4);
 });
 
-test("turnRate adds completed tool waits to the denominator", () => {
+test("turnRate excludes completed tool waits from the denominator", () => {
   const msg: MsgLike = {
     type: "assistant",
     time: { created: 0, completed: 2000 },
     tokens: { output: 200, reasoning: 0 },
     content: [{ type: "tool", time: { created: 2000, completed: 6000 } }],
   };
-  close(turnRate([msg], 6000), 200 / 6);
+  close(turnRate([msg], 6000), 200 / 2);
 });
 
-test("turnRate holds through an in-flight tool call, then drops", () => {
+test("turnRate holds steady through and after a tool call", () => {
   const running: MsgLike = {
     type: "assistant",
     time: { created: 0, completed: 2000 },
@@ -118,7 +118,23 @@ test("turnRate holds through an in-flight tool call, then drops", () => {
   };
   close(turnRate([running], 999_999), 100);
   running.content = [{ type: "tool", time: { created: 2000, completed: 6000 } }];
-  close(turnRate([running], 999_999), 200 / 6);
+  close(turnRate([running], 999_999), 100);
+});
+
+test("turnRate recovers after a long tool once fast generation resumes", () => {
+  const first: MsgLike = {
+    type: "assistant",
+    time: { created: 0, completed: 2000 },
+    tokens: { output: 200, reasoning: 0 },
+    content: [{ type: "tool", time: { created: 2000, completed: 62_000 } }],
+  };
+  const second: MsgLike = {
+    type: "assistant",
+    time: { created: 62_000, completed: 64_000 },
+    tokens: { output: 200, reasoning: 0 },
+  };
+  // Generation-only: 400 tokens over 4s, the 60s grep excluded.
+  close(turnRate([first, second], 64_000), 400 / 4);
 });
 
 test("turnRate estimates the in-flight step from streamed chars", () => {
@@ -137,7 +153,7 @@ const ctxFor = (messages: MsgLike[], status: "idle" | "running" = "idle") =>
     },
   }) as unknown as Context;
 
-test("sessionRun rate matches the footer turn rate, including a completed tool wait", () => {
+test("sessionRun rate matches the footer turn rate, ignoring a completed tool wait", () => {
   const msg: MsgLike = {
     type: "assistant",
     time: { created: 0, completed: 2000 },
@@ -145,8 +161,9 @@ test("sessionRun rate matches the footer turn rate, including a completed tool w
     content: [{ type: "tool", time: { created: 2000, completed: 6000 } }],
   };
   const stats = sessionRun(ctxFor([msg]), "child", 6000);
-  // 200 tokens over 2s generation + 4s tool wait, exactly like the footer.
-  close(stats.rate, 200 / 6);
+  // 200 tokens over 2s generation; the 4s tool wait is excluded, exactly
+  // like the footer.
+  close(stats.rate, 200 / 2);
   close(stats.rate, turnRate(turnMessages([msg]), 6000)!);
   // genSec still excludes the tool wait, tokens still sum output+reasoning.
   close(stats.genSec, 2);

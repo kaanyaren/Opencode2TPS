@@ -139,10 +139,12 @@ export function toolSec(messages: MsgLike[]): number {
   return ms / 1000;
 }
 
-// Turn rate for the footer: generated tokens over generation + tool-wait
-// seconds. Reported usage wins; the in-flight step is estimated from streamed
-// chars so the meter still ticks. A tool call's wait lands only once it
-// completes, so the number holds through an MCP/shell call and then steps down.
+// Turn rate for the footer: generated tokens over generation seconds.
+// Tool waits are excluded on purpose: a single long grep/shell call would
+// otherwise drag the whole-turn average down and later fast generation
+// could never pull it back up. Reported usage wins; the in-flight step is
+// estimated from streamed chars so the meter still ticks. The number holds
+// steady through a tool call instead of stepping down when it returns.
 export function turnRate(turn: MsgLike[], nowMs: number): number | null {
   let tokens = 0;
   let genMs = 0;
@@ -158,7 +160,7 @@ export function turnRate(turn: MsgLike[], nowMs: number): number | null {
   }
   const total = tokens + liveChars / CHARS_PER_TOKEN;
   if (total <= 0) return null;
-  return calcTps(total, Math.max(MIN_SPAN_SEC, genMs / 1000 + toolSec(turn)));
+  return calcTps(total, Math.max(MIN_SPAN_SEC, genMs / 1000));
 }
 
 // Latest completion time among the turn's assistant messages, `nowMs` while any
@@ -181,8 +183,9 @@ export function sessionRun(ctx: Context, sessionID: string, nowMs: number): RunS
   const assistants = messages.filter((msg) => msg?.type === "assistant");
   const { tokens, genSec } = aggregate(assistants, nowMs);
   const running = readStatus(ctx, sessionID) === "running";
-  // Same rate definition as the footer: this turn's tokens over generation
-  // plus completed tool-wait seconds, so the row and footer never disagree.
+  // Same rate definition as the footer: this turn's generated tokens over
+  // generation seconds (tool waits excluded), so the row and footer never
+  // disagree.
   const rate = turnRate(turnMessages(messages), nowMs);
   return { running, rate, genSec, tokens };
 }

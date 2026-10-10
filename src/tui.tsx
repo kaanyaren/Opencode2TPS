@@ -156,9 +156,9 @@ function MeterText(props: {
       turnStartedAt = lastUser?.created ?? now;
     }
 
-    // Rate covers the whole turn: generated tokens over generation + tool-wait
-    // seconds. Tool waits land when the call returns, so an MCP/shell call
-    // holds the number and steps it down the moment the call finishes.
+    // Rate covers generation only: generated tokens over generation seconds.
+    // Tool waits are excluded so one long MCP/shell call can't pin the
+    // meter down for the rest of the turn.
     const rate = turnRate(turn, now);
     // The bar's scale only grows, so it never jitters as the rate dips.
     sessionMax = observedMax(rate, sessionMax, 0);
@@ -168,11 +168,11 @@ function MeterText(props: {
       now,
     );
     const fmtRate = (value: number | null) => (value === null ? "—" : value.toFixed(1));
-    // Surfaced by the palette command; breaks out what the single meter number
-    // blends together (turn rate includes tool waits; gen-only excludes them).
+    // Surfaced by the palette command; tool seconds are shown for context
+    // but excluded from the rate.
     lastDetail =
-      `${fmtRate(rate)} tps | gen ${fmtRate(gen.avgRate)} tps | ` +
-      `tool ${toolSec(turn).toFixed(1)}s | ${wallSec.toFixed(1)}s wall | ` +
+      `${fmtRate(rate)} tps | ` +
+      `tool ${toolSec(turn).toFixed(1)}s (excluded) | ${wallSec.toFixed(1)}s wall | ` +
       `${gen.tokens} tok (output+reasoning; input/cache excluded)`;
     show({ tps: rate, elapsed: wallSec });
   };
