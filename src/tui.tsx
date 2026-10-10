@@ -19,6 +19,7 @@ import {
   meterSegments,
   speedBar,
   observedMax,
+  decayMax,
   isValidColor,
   clampGap,
   rowGap,
@@ -75,8 +76,10 @@ function MeterText(props: {
   const [place, setPlace] = createSignal<string | null>(null);
 
   let turnStartedAt = 0;
-  // Full scale of the speed bar: the highest turn rate seen this session.
+  // Full scale of the speed bar: the recent max turn rate. Decays with a
+  // 60s half-life so one early burst doesn't flatten the bar forever.
   let sessionMax = 0;
+  let lastTick = 0;
   let streaming = false;
   let seenUser: UserLike | null = null;
   // 100ms polling only runs while the session is generating; idle sessions do
@@ -100,6 +103,7 @@ function MeterText(props: {
   const reset = () => {
     turnStartedAt = 0;
     sessionMax = 0;
+    lastTick = 0;
     streaming = false;
     seenUser = null;
     show(null);
@@ -156,24 +160,25 @@ function MeterText(props: {
       turnStartedAt = lastUser?.created ?? now;
     }
 
-    // Rate covers generation only: generated tokens over generation seconds.
-    // Tool waits are excluded so one long MCP/shell call can't pin the
+    // Recent-window generation rate (tool waits excluded, stale output
+    // aged out), so one long MCP/shell call or one slow start can't pin the
     // meter down for the rest of the turn.
     const rate = turnRate(turn, now);
-    // The bar's scale only grows, so it never jitters as the rate dips.
-    sessionMax = observedMax(rate, sessionMax, 0);
+    // Decaying scale: a new high raises it, otherwise it halves every 60s.
+    sessionMax = decayMax(rate, sessionMax, lastTick > 0 ? (now - lastTick) / 1000 : 0);
+    lastTick = now;
     const wallSec = (now - turnStartedAt) / 1000;
     const gen = aggregate(
       turn.filter((msg) => msg.type === "assistant"),
       now,
     );
     const fmtRate = (value: number | null) => (value === null ? "—" : value.toFixed(1));
-    // Surfaced by the palette command; tool seconds are shown for context
-    // but excluded from the rate.
+    // Surfaced by the palette command. Written so the numbers reconcile:
+    // tokens / generation seconds = rate; tool and wall seconds are context.
     lastDetail =
-      `${fmtRate(rate)} tps | ` +
-      `tool ${toolSec(turn).toFixed(1)}s (excluded) | ${wallSec.toFixed(1)}s wall | ` +
-      `${gen.tokens} tok (output+reasoning; input/cache excluded)`;
+      `${fmtRate(rate)} tps | ${gen.tokens} tok / ${gen.genSec.toFixed(1)}s gen | ` +
+      `tool ${toolSec(turn).toFixed(1)}s excl | ${wallSec.toFixed(1)}s wall ` +
+      `(output+reasoning; input/cache excluded)`;
     show({ tps: rate, elapsed: wallSec });
   };
 

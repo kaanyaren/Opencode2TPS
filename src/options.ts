@@ -87,6 +87,19 @@ export function speedBar(tps: number | null, max: number): string {
   return BAR_FILLED.repeat(filled) + BAR_EMPTY.repeat(BAR_CELLS - filled);
 }
 
+// Bar full-scale with time-based decay: the max halves every halfLifeSec
+// without a new high, so one early burst doesn't flatten the bar forever.
+export function decayMax(
+  currentTps: number | null,
+  prevMax: number,
+  dtSec: number,
+  halfLifeSec = 60,
+): number {
+  const dt = Number.isFinite(dtSec) ? Math.max(0, dtSec) : 0;
+  const half = Number.isFinite(halfLifeSec) && halfLifeSec > 0 ? halfLifeSec : 60;
+  return observedMax(currentTps, prevMax * Math.pow(0.5, dt / half), 0);
+}
+
 // Highest tps a session has produced, used as the bar's full-scale. Kept here
 // so the view stays a thin render over pure logic.
 export function observedMax(currentTps: number | null, sessionMax: number, previousMax: number): number {

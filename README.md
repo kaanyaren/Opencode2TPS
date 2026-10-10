@@ -8,16 +8,17 @@ Live TPS meter for OpenCode2. **Centered** in the prompt footer status row
 42.1 tps | 3.2 s
 ```
 
-- TPS = (output + reasoning tokens) / generation seconds, measured across the turn; ticking every 100ms. Right side is total turn wall time.
-- Tool and MCP waits are excluded: a call holds the number steady while it runs and after it returns, so one long grep can't pin the meter down for the rest of the turn.
+- TPS = recent (output + reasoning tokens) / recent generation seconds over a 15 s sliding window, ticking every 100ms. Right side is total turn wall time.
+- Tool and MCP waits are excluded, including waits nested inside a message's own time span. A call holds the number steady while it runs and after it returns, so one long grep can't pin the meter down; when nothing generated recently it falls back to the turn average instead of blanking.
+- Stale output ages out: only the last 15 s counts, so an early slow start can't drag down fresh fast generation.
 - Width-aware: full `42.1 tps | 3.2 s` at wide terminals, just the number (`42.1`) when narrow, hidden on very narrow rows (<44 cols). The timer segment can be hidden with `showTimer`.
 - Type `/tps` (or run `Opencode2TPS: Settings` from the command palette) to configure position, colour, compact mode, the sidebar, and the timer.
 - The gap between the left content, the meter and the right content is symmetric and adjustable with `gap` (0–8) in `/tps`.
-- Can show a small speed bar (at most 12 columns, drawn in the same colour as the TPS value) that scales against the session's observed max TPS; toggle with `showBar` in `/tps`.
+- Can show a small speed bar (at most 12 columns, drawn in the same colour as the TPS value) that scales against the recent max TPS, which halves every 60 s without a new high so one early burst doesn't flatten it; toggle with `showBar` in `/tps`.
 - Inside a subagent's session the footer is prefixed with `↳ <agent>`, so you can tell where you are.
-- While a message streams, tokens are estimated from streamed text + reasoning characters (~4.2 chars/token) and reconciled to reported usage the moment the message completes.
+- While a message streams, tokens are estimated from streamed text (~4.7 chars/token) and reasoning (~4.0 chars/token) characters and reconciled to reported usage the moment the message completes.
 - `—` when the provider reports no usage and no text is visible. No persistence.
-- Run `Opencode2TPS: Show current TPS` from the command palette for a breakdown: turn tps, tool-wait seconds (excluded from the rate), wall seconds, and generation tokens (input/cache excluded).
+- Run `Opencode2TPS: Show current TPS` from the command palette for a reconciling breakdown: `tok / gen-s = tps`, plus excluded tool seconds and wall seconds (input/cache excluded).
 - Avg and totals intentionally removed.
 
 ## Subagent list (sidebar)
@@ -32,10 +33,7 @@ While a session spawns subagents, the sidebar shows one row per descendant
 ```
 
 - `●` running, `✓` succeeded, `✕` failed, `◦` interrupted.
-- Running rows update live; finished rows freeze on the run average —
-  total generated tokens over the subagent's generation seconds (tool waits
-  excluded), using the same definition as the footer, so the row and footer
-  never disagree.
+- Running rows update live on the current turn's rate; finished rows freeze on the run average — total generated tokens over the subagent's generation seconds (tool waits excluded).
 - Rows stay until you send your next prompt, then clear for the new turn.
 - Click a row to open that subagent's session.
 - Shows nothing when the session has no subagents.

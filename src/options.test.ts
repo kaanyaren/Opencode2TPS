@@ -14,6 +14,7 @@ import {
   mergeSettings,
   meterSegments,
   meterTier,
+  decayMax,
   observedMax,
   rowGap,
   speedBar,
@@ -164,6 +165,22 @@ test("observedMax ignores nulls, negatives and NaN", () => {
   assert.equal(observedMax(null, 0, 0), 0);
   assert.equal(observedMax(Number.NaN, -5, -1), 0);
   assert.equal(observedMax(-3, 0, 0), 0);
+});
+
+test("decayMax rises to a new high immediately", () => {
+  assert.equal(decayMax(120, 80, 10), 120);
+  assert.equal(decayMax(50, 0, 10), 50);
+});
+
+test("decayMax halves the previous max every 60s without a new high", () => {
+  assert.equal(decayMax(20, 80, 60), 40);
+  assert.equal(decayMax(null, 80, 60), 40);
+  assert.ok(Math.abs(decayMax(null, 80, 30) - 80 * Math.SQRT1_2) < 1e-9);
+});
+
+test("decayMax treats bad inputs as no elapsed time", () => {
+  assert.equal(decayMax(20, 80, Number.NaN), 80);
+  assert.equal(decayMax(20, 80, -5), 80);
 });
 
 test("formatTps formats numbers and dashes null", () => {

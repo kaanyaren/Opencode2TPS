@@ -6,7 +6,12 @@ import { calcTps } from "./tps.ts";
 
 // Chars-per-token for the live estimate before reported usage lands.
 // Measured on real traffic: text ~4.7, reasoning ~4.0.
-export const CHARS_PER_TOKEN = 4.2;
+export const CHARS_PER_TOKEN_TEXT = 4.7;
+export const CHARS_PER_TOKEN_REASONING = 4.0;
+// Recent-generation window for the live rate, in seconds. Whole-turn
+// averaging is the same long-bucket bug as tool waits: early slow output
+// drags later fast output, so the meter reflects the recent window.
+export const RATE_WINDOW_SEC = 15;
 // Near-zero spans would produce absurd rates; floor the divisor.
 const MIN_SPAN_SEC = 0.3;
 
@@ -52,18 +57,20 @@ export function readLastUser(messages: MsgLike[]): UserLike | null {
   return null;
 }
 
-// Streamed text + reasoning characters. Both are generated tokens; counting
-// only visible text reads ~0 while the model thinks.
-export function charsOf(msg: MsgLike): number {
+// Streamed text + reasoning characters as estimated tokens, with a separate
+// rate for each: reasoning runs denser than prose. Both count — counting only
+// visible text reads ~0 while the model thinks.
+export function estimateTokens(msg: MsgLike): number {
   if (!Array.isArray(msg.content)) return 0;
-  let sum = 0;
+  let text = 0;
+  let reasoning = 0;
   for (const part of msg.content) {
     const p = part as { type?: unknown; text?: unknown };
-    if ((p?.type === "text" || p?.type === "reasoning") && typeof p.text === "string") {
-      sum += p.text.length;
-    }
+    if (typeof p.text !== "string") continue;
+    if (p?.type === "text") text += p.text.length;
+    else if (p?.type === "reasoning") reasoning += p.text.length;
   }
-  return sum;
+  return text / CHARS_PER_TOKEN_TEXT + reasoning / CHARS_PER_TOKEN_REASONING;
 }
 
 export function readStatus(ctx: Context, sessionID: string): "idle" | "running" {
@@ -74,19 +81,36 @@ export function readStatus(ctx: Context, sessionID: string): "idle" | "running" 
   }
 }
 
-export function messageRate(msg: MsgLike, nowMs: number): number | null {
+// Milliseconds of tool execution overlapping [from, to], clamped per call.
+// Covers completed waits and the in-flight one (measured to nowMs): a tool
+// running inside a message's lifetime otherwise reads as generation time.
+export function toolOverlapMs(msg: MsgLike, from: number, to: number, nowMs: number): number {
+  if (!Array.isArray(msg.content)) return 0;
+  let ms = 0;
+  for (const part of msg.content) {
+    const p = part as { type?: unknown; time?: { created?: unknown; completed?: unknown } };
+    if (p?.type !== "tool") continue;
+    const start = num(p.time?.created);
+    if (start === null) continue;
+    const stop = num(p.time?.completed) ?? nowMs;
+    ms += Math.max(0, Math.min(stop, to) - Math.max(start, from));
+  }
+  return ms;
+}
+
+// Generation milliseconds of one message: wall span minus overlapped tool
+// waits. Without the subtraction a long grep nested in the span drags the
+// rate down exactly like the old whole-turn average did.
+export function netGenMs(msg: MsgLike, nowMs: number): number | null {
   const created = num(msg.time?.created);
   if (created === null) return null;
-  const completed = num(msg.time?.completed);
+  const end = num(msg.time?.completed) ?? nowMs;
+  return Math.max(0, Math.max(0, end - created) - toolOverlapMs(msg, created, end, nowMs));
+}
+
+function reportedTokens(msg: MsgLike): number | null {
   const out = num(msg.tokens?.output);
-  if (completed !== null && out !== null) {
-    const span = Math.max(MIN_SPAN_SEC, (completed - created) / 1000);
-    return calcTps(out + (num(msg.tokens?.reasoning) ?? 0), span);
-  }
-  const chars = charsOf(msg);
-  if (chars <= 0) return null;
-  const elapsed = Math.max(MIN_SPAN_SEC, (nowMs - created) / 1000);
-  return calcTps(chars / CHARS_PER_TOKEN, elapsed);
+  return out === null ? null : out + (num(msg.tokens?.reasoning) ?? 0);
 }
 
 export function aggregate(
@@ -97,13 +121,9 @@ export function aggregate(
   let genMs = 0;
   for (const msg of assistantMessages) {
     if (msg?.type !== "assistant") continue;
-    const out = num(msg.tokens?.output);
-    if (out !== null) tokens += out + (num(msg.tokens?.reasoning) ?? 0);
-    const created = num(msg.time?.created);
-    if (created !== null) {
-      const end = num(msg.time?.completed) ?? nowMs;
-      genMs += Math.max(0, end - created);
-    }
+    const reported = reportedTokens(msg);
+    if (reported !== null) tokens += reported;
+    genMs += netGenMs(msg, nowMs) ?? 0;
   }
   const genSec = genMs / 1000;
   return {
@@ -139,28 +159,43 @@ export function toolSec(messages: MsgLike[]): number {
   return ms / 1000;
 }
 
-// Turn rate for the footer: generated tokens over generation seconds.
-// Tool waits are excluded on purpose: a single long grep/shell call would
-// otherwise drag the whole-turn average down and later fast generation
-// could never pull it back up. Reported usage wins; the in-flight step is
-// estimated from streamed chars so the meter still ticks. The number holds
-// steady through a tool call instead of stepping down when it returns.
+// Turn rate for the footer: generated tokens over net generation seconds
+// (tool waits excluded, including waits nested inside a message span).
+// Only the recent RATE_WINDOW_SEC counts: each message's tokens are
+// apportioned uniformly over its span, so stale slow output can't drag down
+// fresh fast output. Reported usage wins; the in-flight step is estimated
+// from streamed chars so the meter still ticks. When nothing generated
+// inside the window (e.g. mid tool stall) it falls back to the turn average
+// so the number holds steady instead of blanking.
 export function turnRate(turn: MsgLike[], nowMs: number): number | null {
-  let tokens = 0;
-  let genMs = 0;
-  let liveChars = 0;
+  const winStart = nowMs - RATE_WINDOW_SEC * 1000;
+  let winTokens = 0;
+  let winSec = 0;
+  let cumTokens = 0;
+  let cumMs = 0;
   for (const msg of turn) {
     if (msg?.type !== "assistant") continue;
     const created = num(msg.time?.created);
+    if (created === null) continue;
     const completed = num(msg.time?.completed);
-    const out = num(msg.tokens?.output);
-    if (out !== null && completed !== null) tokens += out + (num(msg.tokens?.reasoning) ?? 0);
-    else if (completed === null) liveChars += charsOf(msg);
-    if (created !== null) genMs += Math.max(0, (completed ?? nowMs) - created);
+    const end = completed ?? nowMs;
+    const span = end - created;
+    const reported = completed !== null ? reportedTokens(msg) : null;
+    const tokens = reported ?? (completed === null ? estimateTokens(msg) : 0);
+    cumTokens += tokens;
+    cumMs += netGenMs(msg, nowMs) ?? 0;
+    if (span <= 0) {
+      if (end >= winStart) winTokens += tokens;
+      continue;
+    }
+    const overlap = Math.min(end, nowMs) - Math.max(created, winStart);
+    if (overlap <= 0) continue;
+    winTokens += tokens * (overlap / span);
+    winSec += Math.max(0, overlap - toolOverlapMs(msg, Math.max(created, winStart), Math.min(end, nowMs), nowMs)) / 1000;
   }
-  const total = tokens + liveChars / CHARS_PER_TOKEN;
-  if (total <= 0) return null;
-  return calcTps(total, Math.max(MIN_SPAN_SEC, genMs / 1000));
+  if (winTokens > 0) return calcTps(winTokens, Math.max(MIN_SPAN_SEC, winSec));
+  if (cumTokens > 0) return calcTps(cumTokens, Math.max(MIN_SPAN_SEC, cumMs / 1000));
+  return null;
 }
 
 // Latest completion time among the turn's assistant messages, `nowMs` while any
@@ -181,11 +216,13 @@ export function turnEnd(turn: MsgLike[], nowMs: number): number {
 export function sessionRun(ctx: Context, sessionID: string, nowMs: number): RunStats {
   const messages = readMessages(ctx, sessionID);
   const assistants = messages.filter((msg) => msg?.type === "assistant");
-  const { tokens, genSec } = aggregate(assistants, nowMs);
+  const { tokens, genSec, avgRate } = aggregate(assistants, nowMs);
   const running = readStatus(ctx, sessionID) === "running";
-  // Same rate definition as the footer: this turn's generated tokens over
-  // generation seconds (tool waits excluded), so the row and footer never
-  // disagree.
-  const rate = turnRate(turnMessages(messages), nowMs);
+  // Running rows show the live turn rate; finished rows freeze on the run
+  // average (session tokens over session generation seconds). Mixing a
+  // last-turn rate with session totals made multi-turn rows disagree with
+  // themselves, so each state uses the scope that matches its totals.
+  const turn = turnMessages(messages);
+  const rate = running ? turnRate(turn, nowMs) : avgRate;
   return { running, rate, genSec, tokens };
 }
